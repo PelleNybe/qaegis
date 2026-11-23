@@ -7,6 +7,7 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.core.config
 ::: qaegis.core.bus
 ::: qaegis.core.identity
+::: qaegis.core.hardware_seal
 ::: qaegis.core.lifecycle
 ::: qaegis.core.storage
 
@@ -32,6 +33,8 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ## Module 4: Quantum Dreaming
 
 ::: qaegis.modules.quantum_dreamer.solvers
+::: qaegis.modules.quantum_dreamer.backends.braket_backend
+::: qaegis.modules.quantum_dreamer.backends.ionq_backend
 ::: qaegis.modules.quantum_dreamer.policy_updater
 
 ## Module 5: Quantum Entropy Engine

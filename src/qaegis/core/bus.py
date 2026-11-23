@@ -1,4 +1,4 @@
-"""Strongly typed asynchronous Event Bus supporting pub/sub, request/reply, and ZeroMQ."""
+"""Strongly typed async Event Bus supporting pub/sub, request/reply, and CurveZMQ auth."""
 
 from __future__ import annotations
 
@@ -6,20 +6,107 @@ import asyncio
 import contextlib
 import fnmatch
 import hashlib
+import os
+import tempfile
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import orjson
 import zmq
 import zmq.asyncio
 from pydantic import BaseModel, Field, model_validator
+from zmq.auth.asyncio import AsyncioAuthenticator
 
 from qaegis.core.config import BusConfig
+from qaegis.core.identity import constant_time_equal
 from qaegis.core.telemetry import QAegisMetrics, get_logger
 
 logger = get_logger(__name__)
+
+
+class CurveKeyPair(BaseModel):
+    """Z85-encoded Curve25519 keypair for ZeroMQ CurveZMQ mutual authentication."""
+
+    public_key: str = Field(min_length=40, max_length=40)
+    secret_key: str = Field(min_length=40, max_length=40)
+
+
+def generate_curve_keypair() -> CurveKeyPair:
+    """Generate a fresh Z85-encoded Curve25519 keypair via libzmq."""
+    pub_bytes, sec_bytes = zmq.curve_keypair()
+    return CurveKeyPair(
+        public_key=pub_bytes.decode("ascii"),
+        secret_key=sec_bytes.decode("ascii"),
+    )
+
+
+def load_or_create_curve_keypair(key_dir: Path, name: str = "node") -> CurveKeyPair:
+    """Load or atomically create a Curve25519 keypair with strict 0o600 secret permissions."""
+    key_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(key_dir, 0o700)
+    sec_path = key_dir / f"{name}.curve.secret.json"
+    pub_path = key_dir / f"{name}.curve.public"
+
+    if sec_path.is_file():
+        mode = sec_path.stat().st_mode & 0o777
+        if mode & 0o077:
+            raise PermissionError(f"Insecure permissions {oct(mode)} on {sec_path}; expected 0o600")
+        return CurveKeyPair.model_validate(orjson.loads(sec_path.read_bytes()))
+
+    pair = generate_curve_keypair()
+    fd, tmp_name = tempfile.mkstemp(dir=key_dir, prefix=".qaegis-curve-")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(orjson.dumps(pair.model_dump(mode="json"), option=orjson.OPT_SORT_KEYS))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_name, sec_path)
+        os.chmod(sec_path, 0o600)
+    except Exception:
+        if os.path.exists(tmp_name):
+            os.unlink(tmp_name)
+        raise
+
+    pub_path.write_text(pair.public_key, encoding="ascii")
+    os.chmod(pub_path, 0o644)
+    return pair
+
+
+class CurvePeerAllowlistProvider:
+    """ZMQ ZAP credentials provider enforcing Curve25519 public-key allowlist with metrics."""
+
+    def __init__(
+        self,
+        allowed_public_keys: set[bytes],
+        metrics: QAegisMetrics,
+    ) -> None:
+        self._allowed = set(allowed_public_keys)
+        self._metrics = metrics
+        self.accepted_count = 0
+        self.rejected_count = 0
+
+    def allow_key(self, z85_public_key: str) -> None:
+        """Dynamically add a Z85 Curve25519 public key to the allowlist."""
+        self._allowed.add(z85_public_key.encode("ascii"))
+
+    def callback(self, domain: str, key: bytes) -> bool:
+        """Validate a connecting client's Z85 Curve25519 public key during ZAP handshake."""
+        for allowed in self._allowed:
+            if constant_time_equal(allowed, key):
+                self.accepted_count += 1
+                return True
+        self.rejected_count += 1
+        self._metrics.bus_auth_rejections.labels(reason="unauthorized_curve_key").inc()
+        logger.warning(
+            "curvezmq_peer_rejected",
+            domain=domain,
+            key_prefix=key.decode("ascii", errors="replace")[:10],
+        )
+        return False
 
 
 def canonical_payload_hash(payload: dict[str, Any]) -> str:
@@ -87,46 +174,131 @@ class Subscription:
 
 
 class EventBus:
-    """High-throughput typed async Event Bus with backpressure and optional ZeroMQ bridge."""
+    """High-throughput typed async Event Bus with backpressure and optional CurveZMQ bridge."""
 
     def __init__(
         self,
         config: BusConfig | None = None,
         metrics: QAegisMetrics | None = None,
+        curve_keypair: CurveKeyPair | None = None,
     ) -> None:
         self._config = config or BusConfig()
         self._metrics = metrics or QAegisMetrics()
+        self._curve_keypair = curve_keypair
         self._subscriptions: dict[str, Subscription] = {}
         self._request_handlers: dict[str, RequestHandler] = {}
         self._pending_replies: dict[str, asyncio.Future[EventEnvelope]] = {}
         self._running = False
         self._zmq_ctx: zmq.asyncio.Context | None = None
+        self._zmq_auth: AsyncioAuthenticator | None = None
+        self._auth_provider: CurvePeerAllowlistProvider | None = None
         self._zmq_pub: zmq.asyncio.Socket | None = None
         self._zmq_sub: zmq.asyncio.Socket | None = None
         self._zmq_reader_task: asyncio.Task[None] | None = None
+        self._bound_pub_endpoint: str | None = None
 
     @property
     def is_running(self) -> bool:
         """Return whether the EventBus is started."""
         return self._running
 
+    @property
+    def curve_public_key(self) -> str | None:
+        """Return this node's Curve25519 Z85 public key if CurveZMQ is active."""
+        return self._curve_keypair.public_key if self._curve_keypair is not None else None
+
+    @property
+    def bound_pub_endpoint(self) -> str | None:
+        """Return the resolved ZeroMQ PUB bind endpoint (useful when binding ephemeral port 0)."""
+        return self._bound_pub_endpoint
+
+    @property
+    def auth_provider(self) -> CurvePeerAllowlistProvider | None:
+        """Return the active CurveZMQ ZAP allowlist provider, if CurveZMQ server is running."""
+        return self._auth_provider
+
     async def start(self) -> None:
-        """Start the event bus and optional ZeroMQ bridge."""
+        """Start the event bus and optional ZeroMQ / CurveZMQ authenticated bridge."""
         if self._running:
             return
         self._running = True
         if self._config.transport == "zmq":
             self._zmq_ctx = zmq.asyncio.Context()
-            self._zmq_pub = self._zmq_ctx.socket(zmq.PUB)
-            self._zmq_pub.bind(self._config.zmq_pub_endpoint)
-            self._zmq_sub = self._zmq_ctx.socket(zmq.SUB)
-            self._zmq_sub.connect(self._config.zmq_sub_endpoint)
-            self._zmq_sub.setsockopt(zmq.SUBSCRIBE, b"")
-            self._zmq_reader_task = asyncio.create_task(self._zmq_receive_loop())
-        logger.info("event_bus_started", transport=self._config.transport)
+            use_curve = self._config.zmq_security == "curve"
+            if use_curve:
+                if self._curve_keypair is None:
+                    if self._config.zmq_curve_key_dir is not None:
+                        self._curve_keypair = load_or_create_curve_keypair(
+                            self._config.zmq_curve_key_dir
+                        )
+                    else:
+                        self._curve_keypair = generate_curve_keypair()
+
+                if self._config.zmq_bind_pub:
+                    self._zmq_auth = AsyncioAuthenticator(self._zmq_ctx)
+                    self._zmq_auth.start()
+                    allowed_keys = {k.encode("ascii") for k in self._config.zmq_allowed_peer_keys}
+                    # Allow own key if connecting local SUB to local PUB
+                    if self._config.zmq_connect_sub:
+                        allowed_keys.add(self._curve_keypair.public_key.encode("ascii"))
+                    self._auth_provider = CurvePeerAllowlistProvider(
+                        allowed_public_keys=allowed_keys,
+                        metrics=self._metrics,
+                    )
+                    self._zmq_auth.configure_curve_callback(
+                        domain="*",
+                        credentials_provider=self._auth_provider,
+                    )
+
+            if self._config.zmq_bind_pub:
+                self._zmq_pub = self._zmq_ctx.socket(zmq.PUB)
+                if use_curve and self._curve_keypair is not None:
+                    self._zmq_pub.setsockopt(zmq.CURVE_SERVER, 1)
+                    self._zmq_pub.setsockopt(
+                        zmq.CURVE_SECRETKEY, self._curve_keypair.secret_key.encode("ascii")
+                    )
+                    self._zmq_pub.setsockopt(
+                        zmq.CURVE_PUBLICKEY, self._curve_keypair.public_key.encode("ascii")
+                    )
+                self._zmq_pub.bind(self._config.zmq_pub_endpoint)
+                raw_ep = self._zmq_pub.getsockopt(zmq.LAST_ENDPOINT)
+                self._bound_pub_endpoint = (
+                    raw_ep.decode("utf-8") if isinstance(raw_ep, bytes) else str(raw_ep)
+                )
+
+            if self._config.zmq_connect_sub:
+                self._zmq_sub = self._zmq_ctx.socket(zmq.SUB)
+                if use_curve and self._curve_keypair is not None:
+                    server_pub = (
+                        self._config.zmq_server_public_key or self._curve_keypair.public_key
+                    )
+                    self._zmq_sub.setsockopt(zmq.CURVE_SERVERKEY, server_pub.encode("ascii"))
+                    self._zmq_sub.setsockopt(
+                        zmq.CURVE_PUBLICKEY, self._curve_keypair.public_key.encode("ascii")
+                    )
+                    self._zmq_sub.setsockopt(
+                        zmq.CURVE_SECRETKEY, self._curve_keypair.secret_key.encode("ascii")
+                    )
+                sub_target = (
+                    self._bound_pub_endpoint
+                    if (
+                        self._bound_pub_endpoint is not None
+                        and self._config.zmq_sub_endpoint == self._config.zmq_pub_endpoint
+                    )
+                    else self._config.zmq_sub_endpoint
+                )
+                self._zmq_sub.connect(sub_target)
+                self._zmq_sub.setsockopt(zmq.SUBSCRIBE, b"")
+                self._zmq_reader_task = asyncio.create_task(self._zmq_receive_loop())
+
+        logger.info(
+            "event_bus_started",
+            transport=self._config.transport,
+            zmq_security=self._config.zmq_security,
+        )
 
     async def stop(self) -> None:
-        """Gracefully stop all subscriber workers, pending RPCs, and ZeroMQ sockets."""
+        """Gracefully stop all subscriber workers, pending RPCs, CurveZMQ auth, and sockets."""
         if not self._running:
             return
         self._running = False
@@ -141,6 +313,13 @@ class EventBus:
                 sock.close(linger=0)
         self._zmq_pub = None
         self._zmq_sub = None
+        self._bound_pub_endpoint = None
+
+        if self._zmq_auth is not None:
+            self._zmq_auth.stop()
+            self._zmq_auth = None
+        self._auth_provider = None
+
         if self._zmq_ctx is not None:
             self._zmq_ctx.term()
             self._zmq_ctx = None
@@ -163,11 +342,7 @@ class EventBus:
         handler: EventHandler | None = None,
         max_queue_size: int | None = None,
     ) -> Subscription:
-        """Subscribe to a topic or glob pattern (e.g., `sensor.*`).
-
-        If `handler` is provided, a background coroutine dispatches incoming envelopes
-        to `handler`. Otherwise callers can read directly from `subscription.queue`.
-        """
+        """Subscribe to a topic or glob pattern (e.g., `sensor.*`)."""
         sub_id = uuid.uuid4().hex
         queue: asyncio.Queue[EventEnvelope] = asyncio.Queue(
             maxsize=max_queue_size or self._config.max_queue_size

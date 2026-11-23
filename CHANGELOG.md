@@ -5,6 +5,13 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-23
+
+### Added
+- **Hardware Key Sealing (`qaegis.core.hardware_seal`):** Pluggable `HardwareSealer` protocol with real `PKCS11Sealer` (non-extractable AES-256 HSM/SoftHSM2 KEK envelope encryption via `python-pkcs11`), real Linux `TPM2Sealer` (PCR-bound `tpm2-tools` sealing on `/dev/tpmrm0`), `qaegis seal-identity --backend [pkcs11|tpm2]` CLI, and hardware readiness diagnostics in `qaegis doctor`.
+- **Multi-Cloud QPU Backend Registry (`qaegis.modules.quantum_dreamer.backends`):** Extensible `QuantumBackendRegistry` adding **AWS Braket** (`AwsBraketBackend` with OpenQASM 3.0 compiler for `LocalSimulator` and remote `AwsDevice` ARNs) and **IonQ Cloud API v0.3** (`IonQBackend` with Qiskit-to-IonQ QIS gate compiler, job polling, calibration metadata, and honest local noisy fallback).
+- **CurveZMQ Authenticated Event Bus (`qaegis.core.bus`):** Mutual Curve25519 encryption and ZAP allowlist authentication via `AsyncioAuthenticator`, `0o600` Curve25519 keypair persistence, and `qaegis_bus_auth_rejections_total` Prometheus metrics.
+
 ## [0.1.0] - 2026-11-23
 
 ### Added

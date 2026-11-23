@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from qaegis.modules.quantum_dreamer.backends import (
+    AwsBraketBackend,
+    IonQBackend,
+    build_braket_openqasm3,
+    qiskit_to_ionq_circuit,
+)
 from qaegis.modules.quantum_dreamer.policy_updater import (
     PolicyScorer,
     PolicyUpdater,
@@ -17,15 +23,19 @@ from qaegis.modules.quantum_dreamer.solvers import (
     QaoaSolution,
     QaoaSolver,
     QuantumBackend,
+    QuantumBackendRegistry,
     build_qaoa_circuit,
     create_quantum_backend,
+    get_backend_registry,
 )
 
 __all__ = [
     "AerNoisyBackend",
     "AerStatevectorBackend",
+    "AwsBraketBackend",
     "DreamProblemQueue",
     "IbmRuntimeBackend",
+    "IonQBackend",
     "NightCycleReport",
     "PolicyScorer",
     "PolicyUpdateResult",
@@ -33,8 +43,12 @@ __all__ = [
     "QaoaSolution",
     "QaoaSolver",
     "QuantumBackend",
+    "QuantumBackendRegistry",
     "QuantumDreamerService",
     "bitstring_to_policy_weights",
+    "build_braket_openqasm3",
     "build_qaoa_circuit",
     "create_quantum_backend",
+    "get_backend_registry",
+    "qiskit_to_ionq_circuit",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -246,16 +247,74 @@ class IbmRuntimeBackend(QuantumBackend):
         return {key[::-1]: float(cnt) / total for key, cnt in counts.items()}
 
 
-def create_quantum_backend(config: QuantumDreamerConfig) -> QuantumBackend:
-    """Instantiate the configured real quantum execution backend."""
-    if config.backend_type == "aer_statevector":
-        return AerStatevectorBackend()
-    if config.backend_type == "aer_noisy":
-        return AerNoisyBackend()
-    return IbmRuntimeBackend(
-        backend_name=config.ibm_backend_name,
-        channel=config.ibm_channel,
+BackendFactory = Callable[[QuantumDreamerConfig], QuantumBackend]
+
+
+class QuantumBackendRegistry:
+    """Plugin registry mapping backend identifiers to real QuantumBackend factories."""
+
+    def __init__(self) -> None:
+        self._factories: dict[str, BackendFactory] = {}
+
+    def register(self, name: str, factory: BackendFactory) -> None:
+        """Register a quantum backend plugin factory under `name`."""
+        self._factories[name] = factory
+
+    def available_backends(self) -> list[str]:
+        """Return sorted names of all registered quantum execution backends."""
+        return sorted(self._factories.keys())
+
+    def create(self, name: str, config: QuantumDreamerConfig) -> QuantumBackend:
+        """Instantiate a registered backend plugin by name."""
+        factory = self._factories.get(name)
+        if factory is None:
+            available = ", ".join(self.available_backends())
+            raise KeyError(f"Unknown quantum backend '{name}'. Available: {available}")
+        return factory(config)
+
+
+def _create_default_registry() -> QuantumBackendRegistry:
+    from qaegis.modules.quantum_dreamer.backends.braket_backend import AwsBraketBackend
+    from qaegis.modules.quantum_dreamer.backends.ionq_backend import IonQBackend
+
+    reg = QuantumBackendRegistry()
+    reg.register("aer_statevector", lambda _cfg: AerStatevectorBackend())
+    reg.register("aer_noisy", lambda _cfg: AerNoisyBackend())
+    reg.register(
+        "ibm_runtime",
+        lambda cfg: IbmRuntimeBackend(
+            backend_name=cfg.ibm_backend_name,
+            channel=cfg.ibm_channel,
+        ),
     )
+    reg.register(
+        "aws_braket",
+        lambda cfg: AwsBraketBackend(device_arn=cfg.braket_device_arn),
+    )
+    reg.register(
+        "ionq",
+        lambda cfg: IonQBackend(
+            target=cfg.ionq_target,
+            api_url=cfg.ionq_api_url,
+        ),
+    )
+    return reg
+
+
+_DEFAULT_REGISTRY: QuantumBackendRegistry | None = None
+
+
+def get_backend_registry() -> QuantumBackendRegistry:
+    """Return the global QuantumBackendRegistry pre-populated with built-in backends."""
+    global _DEFAULT_REGISTRY
+    if _DEFAULT_REGISTRY is None:
+        _DEFAULT_REGISTRY = _create_default_registry()
+    return _DEFAULT_REGISTRY
+
+
+def create_quantum_backend(config: QuantumDreamerConfig) -> QuantumBackend:
+    """Instantiate the configured real quantum execution backend from the registry."""
+    return get_backend_registry().create(config.backend_type, config)
 
 
 class QaoaSolver:

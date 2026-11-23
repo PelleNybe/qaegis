@@ -21,6 +21,12 @@ from rich.table import Table
 from qaegis import __version__
 from qaegis.core.bus import EventBus
 from qaegis.core.config import load_config
+from qaegis.core.hardware_seal import (
+    HardwareSealer,
+    PKCS11Sealer,
+    TPM2Sealer,
+    detect_pkcs11_library,
+)
 from qaegis.core.identity import IdentityManager
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
@@ -169,9 +175,87 @@ def doctor_cmd(
     )
     table.add_row("SQLite WAL Schema Version", str(schema_v))
     table.add_row("Audit Hash Chain Valid", f"{audit_ok} ({audit_count} records)")
+
+    tpm_sealer = TPM2Sealer(device_path=Path(cfg.identity.tpm2_device))
+    table.add_row(
+        "TPM 2.0 Device (/dev/tpmrm0)",
+        f"device={tpm_sealer.device_path.exists()}, tools={tpm_sealer.tools_installed()}",
+    )
+    pkcs11_lib = detect_pkcs11_library(cfg.identity.pkcs11_library)
+    if pkcs11_lib is not None:
+        try:
+            slots = PKCS11Sealer(library_path=pkcs11_lib).list_slots()
+            slot_summary = f"{pkcs11_lib.name} ({len(slots)} token slot(s))"
+        except Exception as exc:
+            slot_summary = f"{pkcs11_lib.name} (unavailable: {exc})"
+    else:
+        slot_summary = "not installed"
+    table.add_row("PKCS#11 HSM / SoftHSM2", slot_summary)
+
     console.print(table)
     if not audit_ok:
         raise typer.Exit(code=1)
+
+
+@app.command("seal-identity")
+def seal_identity_cmd(
+    backend: Annotated[
+        str,
+        typer.Option("--backend", "-b", help="Hardware sealing backend: pkcs11 or tpm2."),
+    ] = "pkcs11",
+    token_label: Annotated[
+        str | None,
+        typer.Option("--token-label", help="PKCS#11 token label (for pkcs11 backend)."),
+    ] = None,
+    user_pin: Annotated[
+        str,
+        typer.Option("--pin", help="PKCS#11 user PIN (for pkcs11 backend)."),
+    ] = "1234",
+    library_path: Annotated[
+        Path | None,
+        typer.Option("--pkcs11-lib", help="Optional explicit PKCS#11 shared library path."),
+    ] = None,
+    pcr_spec: Annotated[
+        str | None,
+        typer.Option("--pcr-spec", help="TPM 2.0 PCR selection (e.g. sha256:0,7)."),
+    ] = None,
+    remove_plaintext: Annotated[
+        bool,
+        typer.Option("--remove-plaintext", help="Delete unsealed secret JSON after sealing."),
+    ] = False,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Seal the node's PQC identity private keys using PKCS#11 (HSM/SoftHSM2) or TPM 2.0."""
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+    identity = mgr.load_or_create()
+
+    sealer: HardwareSealer
+    if backend == "pkcs11":
+        sealer = PKCS11Sealer(
+            token_label=token_label or cfg.identity.pkcs11_token_label,
+            user_pin=user_pin,
+            key_label=cfg.identity.pkcs11_key_label,
+            library_path=library_path or cfg.identity.pkcs11_library,
+        )
+    elif backend == "tpm2":
+        sealer = TPM2Sealer(
+            device_path=Path(cfg.identity.tpm2_device),
+            pcr_spec=pcr_spec or cfg.identity.tpm2_pcr_spec,
+        )
+    else:
+        console.print(f"[red]Unsupported sealing backend '{backend}'. Use pkcs11 or tpm2.[/red]")
+        raise typer.Exit(code=2)
+
+    blob = mgr.seal_identity(identity, sealer, remove_plaintext_secret=remove_plaintext)
+    console.print(
+        f"[green]Sealed identity {identity.key_id} with {blob.backend} "
+        f"(key_label={blob.key_label}) to {mgr.sealed_path}[/green]"
+    )
 
 
 @app.command("stamp")
@@ -308,7 +392,10 @@ def dream_cmd(
     nodes: Annotated[int, typer.Option("--nodes", help="Demo Max-Cut graph node count.")] = 4,
     backend: Annotated[
         str,
-        typer.Option("--backend", help="Backend: aer_statevector, aer_noisy, or ibm_runtime."),
+        typer.Option(
+            "--backend",
+            help="Backend: aer_statevector, aer_noisy, ibm_runtime, aws_braket, or ionq.",
+        ),
     ] = "aer_statevector",
 ) -> None:
     """Trigger a Night-Mode Quantum Dreaming QAOA cycle and display optimal solution metrics."""

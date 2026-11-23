@@ -94,6 +94,30 @@ class QAegisMetrics:
             labelnames=("topic",),
             registry=self.registry,
         )
+        self.bus_auth_rejections = Counter(
+            "qaegis_bus_auth_rejections_total",
+            "Total CurveZMQ peer handshakes rejected by ZAP authentication",
+            labelnames=("reason",),
+            registry=self.registry,
+        )
+        self.gossip_equivocations = Counter(
+            "qaegis_gossip_equivocation_total",
+            "Total split-view Merkle root equivocation alerts detected in gossip mesh",
+            labelnames=("peer_node_id",),
+            registry=self.registry,
+        )
+        self.gossip_roots_accepted = Counter(
+            "qaegis_gossip_roots_accepted_total",
+            "Total verified peer Merkle root checkpoints accepted via gossip",
+            labelnames=("peer_node_id",),
+            registry=self.registry,
+        )
+        self.mitigation_runs = Counter(
+            "qaegis_mitigation_runs_total",
+            "Total quantum error mitigation executions (ZNE / TREX)",
+            labelnames=("technique",),
+            registry=self.registry,
+        )
         self.lifecycle_mode = Gauge(
             "qaegis_lifecycle_mode",
             "Current operating mode (0=DAY, 1=NIGHT, 2=TRANSITIONING, -1=SHUTDOWN)",

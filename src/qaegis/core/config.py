@@ -17,6 +17,12 @@ class BusConfig(BaseModel):
     transport: Literal["inproc", "zmq"] = "inproc"
     zmq_pub_endpoint: str = "ipc:///tmp/qaegis-bus-pub.ipc"
     zmq_sub_endpoint: str = "ipc:///tmp/qaegis-bus-pub.ipc"
+    zmq_bind_pub: bool = True
+    zmq_connect_sub: bool = True
+    zmq_security: Literal["none", "curve"] = "none"
+    zmq_curve_key_dir: Path | None = None
+    zmq_allowed_peer_keys: list[str] = Field(default_factory=list)
+    zmq_server_public_key: str | None = None
     max_queue_size: int = Field(default=1024, ge=1, le=1_000_000)
     backpressure_policy: Literal["block", "drop_oldest", "reject"] = "block"
     request_timeout_s: float = Field(default=10.0, gt=0.0)
@@ -29,6 +35,12 @@ class IdentityConfig(BaseModel):
     fallback_sig_alg: str = "SLH-DSA-SHA2-128f"
     kem_alg: str = "ML-KEM-768"
     rotation_interval_hours: int = Field(default=720, ge=1)
+    hardware_seal_backend: Literal["none", "pkcs11", "tpm2"] = "none"
+    pkcs11_library: str | None = None
+    pkcs11_token_label: str = "qaegis"  # noqa: S105
+    pkcs11_key_label: str = "qaegis-pqc-kek"
+    tpm2_device: str = "/dev/tpmrm0"
+    tpm2_pcr_spec: str = "sha256:0,7"
 
 
 class LifecycleConfig(BaseModel):
@@ -86,13 +98,22 @@ class QubitCompilerConfig(BaseModel):
 class QuantumDreamerConfig(BaseModel):
     """Configuration for Module 4: Quantum Dreaming asynchronous optimizer."""
 
-    backend_type: Literal["aer_statevector", "aer_noisy", "ibm_runtime"] = "aer_statevector"
+    backend_type: Literal["aer_statevector", "aer_noisy", "ibm_runtime", "aws_braket", "ionq"] = (
+        "aer_statevector"
+    )
     ibm_backend_name: str = "ibm_brisbane"
     ibm_channel: Literal["ibm_quantum", "ibm_cloud"] = "ibm_quantum"
+    braket_device_arn: str | None = None
+    ionq_target: str = "simulator"
+    ionq_api_url: str = "https://api.ionq.co/v0.3/jobs"
     qaoa_reps: int = Field(default=2, ge=1, le=8)
     qaoa_shots: int = Field(default=1024, ge=64, le=100_000)
     max_optimizer_iters: int = Field(default=60, ge=5, le=1000)
     min_policy_improvement: float = Field(default=0.01, ge=0.0)
+    mitigation_mode: Literal["none", "zne", "trex", "both"] = "none"
+    zne_scale_factors: list[int] = Field(default_factory=lambda: [1, 3, 5])
+    zne_extrapolation: Literal["linear", "richardson", "exponential"] = "richardson"
+    max_qpu_seconds_per_night: float = Field(default=300.0, gt=0.0)
 
 
 class QuantumEntropyConfig(BaseModel):

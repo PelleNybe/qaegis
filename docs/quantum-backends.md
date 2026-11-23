@@ -9,6 +9,8 @@ Q-Aegis executes genuine quantum circuits across **Qiskit 2.x**, **Qiskit Aer**,
 | `aer_statevector` | `AerStatevectorBackend` | Exact noiseless statevector (`AerSimulator`) | Local CPU only | Deterministic CI testing, exact QAOA benchmarking |
 | `aer_noisy` | `AerNoisyBackend` | Shot-based `AerSimulator` with depolarizing 1Q/2Q + readout `NoiseModel` | Local CPU only | Realistic NISQ noise simulation offline |
 | `ibm_runtime` | `IbmRuntimeBackend` | Real QPU via `QiskitRuntimeService` + `SamplerV2` | `IBM_QUANTUM_TOKEN` env var | Night-Mode production QAOA on IBM hardware |
+| `aws_braket` | `AwsBraketBackend` | OpenQASM 3.0 on `LocalSimulator` or `AwsDevice` QPU ARN | `QAEGIS_BRAKET_DEVICE_ARN` + AWS creds (or local) | Cross-vendor QPU execution (Rigetti, IQM, IonQ via AWS) |
+| `ionq` | `IonQBackend` | IonQ Cloud API v0.3 QIS JSON (`POST /v0.3/jobs`) with polling | `IONQ_API_KEY` env var (or local noisy fallback) | Trapped-ion all-to-all QAOA on IonQ Aria / Forte |
 
 ## Transparent Cloud Fallback
 

@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from pydantic import BaseModel, Field
 
 from qaegis.core.config import IdentityConfig
+from qaegis.core.hardware_seal import HardwareSealer, SealedBlob
 from qaegis.core.telemetry import get_logger
 
 logger = get_logger(__name__)
@@ -241,6 +242,7 @@ class IdentityManager:
     """Manages generation, secure persistence (0o600), loading, and rotation of PQC identities."""
 
     KEYFILE_NAME = "device_identity.secret.json"
+    SEALED_KEYFILE_NAME = "device_identity.sealed.json"
     PUBFILE_NAME = "device_identity.public.json"
 
     def __init__(
@@ -256,6 +258,10 @@ class IdentityManager:
     @property
     def secret_path(self) -> Path:
         return self._keys_dir / self.KEYFILE_NAME
+
+    @property
+    def sealed_path(self) -> Path:
+        return self._keys_dir / self.SEALED_KEYFILE_NAME
 
     @property
     def public_path(self) -> Path:
@@ -309,6 +315,11 @@ class IdentityManager:
 
     def save(self, identity: DeviceIdentity) -> None:
         """Persist secret key material with 0o600 permissions and export public bundle."""
+        secret_bytes = self._serialize_secret_bytes(identity)
+        _atomic_write_secret(self.secret_path, secret_bytes)
+        self._write_public_bundle(identity)
+
+    def _serialize_secret_bytes(self, identity: DeviceIdentity) -> bytes:
         x25519_raw = identity.x25519_private.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
@@ -333,10 +344,10 @@ class IdentityManager:
             "kem_secret_b64": base64.b64encode(identity.kem_secret).decode("ascii"),
             "x25519_private_b64": base64.b64encode(x25519_raw).decode("ascii"),
         }
-        _atomic_write_secret(
-            self.secret_path,
-            orjson.dumps(secret_doc, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS),
-        )
+        return orjson.dumps(secret_doc, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS)
+
+    def _write_public_bundle(self, identity: DeviceIdentity) -> None:
+        self._keys_dir.mkdir(parents=True, exist_ok=True)
         pub_bytes = orjson.dumps(
             identity.public_bundle().model_dump(mode="json"),
             option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
@@ -344,22 +355,9 @@ class IdentityManager:
         self.public_path.write_bytes(pub_bytes)
         os.chmod(self.public_path, 0o644)
 
-    def load_or_create(self) -> DeviceIdentity:
-        """Load the existing device identity if present, or generate a new one."""
-        if self.secret_path.is_file():
-            return self.load()
-        return self.generate()
-
-    def load(self) -> DeviceIdentity:
-        """Load the persisted device identity after enforcing strict file permissions."""
-        if not self.secret_path.is_file():
-            raise FileNotFoundError(f"Secret identity file not found: {self.secret_path}")
-        mode = self.secret_path.stat().st_mode & 0o777
-        if mode & 0o077:
-            raise PermissionError(
-                f"Insecure permissions {oct(mode)} on {self.secret_path}; expected 0o600"
-            )
-        raw = orjson.loads(self.secret_path.read_bytes())
+    @staticmethod
+    def _deserialize_secret_bytes(raw_bytes: bytes) -> DeviceIdentity:
+        raw = orjson.loads(raw_bytes)
         x25519_priv = X25519PrivateKey.from_private_bytes(
             base64.b64decode(raw["x25519_private_b64"])
         )
@@ -378,6 +376,56 @@ class IdentityManager:
             kem_secret=base64.b64decode(raw["kem_secret_b64"]),
             x25519_private=x25519_priv,
         )
+
+    def seal_identity(
+        self,
+        identity: DeviceIdentity,
+        sealer: HardwareSealer,
+        remove_plaintext_secret: bool = False,
+    ) -> SealedBlob:
+        """Hardware-seal PQC secret key material via PKCS#11 or TPM 2.0 and persist 0o600."""
+        secret_bytes = self._serialize_secret_bytes(identity)
+        aad = f"{identity.node_id}|{identity.key_id}".encode()
+        blob = sealer.seal(secret_bytes, associated_data=aad)
+        blob_bytes = orjson.dumps(
+            blob.model_dump(mode="json"),
+            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+        )
+        _atomic_write_secret(self.sealed_path, blob_bytes)
+        self._write_public_bundle(identity)
+        if remove_plaintext_secret and self.secret_path.is_file():
+            self.secret_path.unlink()
+        return blob
+
+    def load_sealed(self, sealer: HardwareSealer) -> DeviceIdentity:
+        """Load and hardware-unseal the persisted PQC identity from sealed storage."""
+        if not self.sealed_path.is_file():
+            raise FileNotFoundError(f"Sealed identity file not found: {self.sealed_path}")
+        mode = self.sealed_path.stat().st_mode & 0o777
+        if mode & 0o077:
+            raise PermissionError(
+                f"Insecure permissions {oct(mode)} on {self.sealed_path}; expected 0o600"
+            )
+        blob = SealedBlob.model_validate(orjson.loads(self.sealed_path.read_bytes()))
+        plaintext = sealer.unseal(blob)
+        return self._deserialize_secret_bytes(plaintext)
+
+    def load_or_create(self) -> DeviceIdentity:
+        """Load the existing device identity if present, or generate a new one."""
+        if self.secret_path.is_file():
+            return self.load()
+        return self.generate()
+
+    def load(self) -> DeviceIdentity:
+        """Load the persisted device identity after enforcing strict file permissions."""
+        if not self.secret_path.is_file():
+            raise FileNotFoundError(f"Secret identity file not found: {self.secret_path}")
+        mode = self.secret_path.stat().st_mode & 0o777
+        if mode & 0o077:
+            raise PermissionError(
+                f"Insecure permissions {oct(mode)} on {self.secret_path}; expected 0o600"
+            )
+        return self._deserialize_secret_bytes(self.secret_path.read_bytes())
 
     def rotate(self) -> DeviceIdentity:
         """Archive the previous public bundle and generate a fresh rotated identity."""
