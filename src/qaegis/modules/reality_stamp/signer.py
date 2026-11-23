@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from qaegis.core.identity import (
     DeviceIdentity,
+    TrustKeyring,
     compute_key_fingerprint,
     constant_time_equal,
 )
@@ -46,6 +47,7 @@ class RealityStamp(BaseModel):
     payload_sha256: str
     algorithm: str
     key_id: str
+    key_version: int = 1
     public_key_b64: str
     public_key_fingerprint: str
     signature_b64: str
@@ -106,6 +108,7 @@ class RealitySigner:
             payload_sha256=payload_digest,
             algorithm=alg,
             key_id=self._identity.key_id,
+            key_version=self._identity.key_version,
             public_key_b64=base64.b64encode(pub_key).decode("ascii"),
             public_key_fingerprint=fingerprint,
             signature_b64=base64.b64encode(signature).decode("ascii"),
@@ -115,9 +118,10 @@ class RealitySigner:
 def verify_reality_stamp(
     stamp: RealityStamp,
     expected_public_key_fingerprint: str | None = None,
+    keyring: TrustKeyring | None = None,
     metrics: QAegisMetrics | None = None,
 ) -> StampVerificationResult:
-    """Perform complete offline verification of a RealityStamp and optional Merkle proof."""
+    """Perform offline verification of a RealityStamp, optional keyring, and Merkle proof."""
     canonical = stamp.payload.canonical_bytes()
     computed_digest = hashlib.sha256(canonical).hexdigest()
     payload_hash_ok = constant_time_equal(
@@ -151,6 +155,23 @@ def verify_reality_stamp(
             expected_public_key_fingerprint.encode("ascii"),
         )
 
+    keyring_err: str | None = None
+    if keyring is not None:
+        bundle = keyring.get_by_key_id(stamp.key_id) or keyring.get_by_version(stamp.key_version)
+        if bundle is None:
+            fingerprint_ok = False
+            keyring_err = f"Key ID '{stamp.key_id}' (v{stamp.key_version}) not found in keyring"
+        else:
+            allowed_fps = (bundle.primary_sig_fingerprint, bundle.fallback_sig_fingerprint)
+            if not any(
+                constant_time_equal(computed_fp.encode("ascii"), fp.encode("ascii"))
+                for fp in allowed_fps
+            ):
+                fingerprint_ok = False
+                keyring_err = (
+                    f"Stamp public key does not match trusted keyring entry '{bundle.key_id}'"
+                )
+
     start = time.perf_counter()
     try:
         signature_ok = DeviceIdentity.verify(canonical, signature, pub_key, stamp.algorithm)
@@ -158,7 +179,7 @@ def verify_reality_stamp(
         signature_ok = False
         err_msg: str | None = f"Signature verification error: {exc}"
     else:
-        err_msg = None
+        err_msg = keyring_err
     elapsed = time.perf_counter() - start
 
     merkle_ok: bool | None = None

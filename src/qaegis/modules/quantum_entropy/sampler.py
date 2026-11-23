@@ -121,7 +121,8 @@ class QuantumMCTS(Generic[StateT, ActionT]):
                 curr = curr.parent
 
         best_child = max(root.children, key=lambda ch: ch.visits)
-        assert best_child.action is not None
+        if best_child.action is None:
+            raise RuntimeError("Selected MCTS child node is missing its originating action")
         mean_val = best_child.total_reward / max(best_child.visits, 1)
         return best_child.action, float(mean_val)
 

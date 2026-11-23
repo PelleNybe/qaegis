@@ -1,4 +1,4 @@
-"""Post-Quantum Device Identity, Secure Key Lifecycle, and CBOM Export."""
+"""Post-Quantum Device Identity, Zero-Downtime Key Rotation, Keyring, and CycloneDX CBOM."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from qaegis.core.config import IdentityConfig
 from qaegis.core.hardware_seal import HardwareSealer, SealedBlob
-from qaegis.core.telemetry import get_logger
+from qaegis.core.telemetry import QAegisMetrics, get_logger
 
 logger = get_logger(__name__)
 
@@ -50,6 +50,21 @@ _KEM_ALIASES: dict[str, tuple[str, ...]] = {
     "ML-KEM-512": ("ML-KEM-512", "Kyber512"),
     "ML-KEM-768": ("ML-KEM-768", "Kyber768"),
     "ML-KEM-1024": ("ML-KEM-1024", "Kyber1024"),
+}
+
+# NIST / IETF OIDs for CycloneDX 1.6 CBOM cryptographic asset descriptors
+_ALGORITHM_OIDS: dict[str, tuple[str, int]] = {
+    "ML-KEM-512": ("2.16.840.1.101.3.4.4.1", 1),
+    "ML-KEM-768": ("2.16.840.1.101.3.4.4.2", 3),
+    "ML-KEM-1024": ("2.16.840.1.101.3.4.4.3", 5),
+    "ML-DSA-44": ("2.16.840.1.101.3.4.3.17", 2),
+    "ML-DSA-65": ("2.16.840.1.101.3.4.3.18", 3),
+    "ML-DSA-87": ("2.16.840.1.101.3.4.3.19", 5),
+    "SLH-DSA-SHA2-128f": ("2.16.840.1.101.3.4.3.21", 1),
+    "SLH_DSA_PURE_SHA2_128F": ("2.16.840.1.101.3.4.3.21", 1),
+    "X25519": ("1.3.101.110", 0),
+    "AES-256-GCM": ("2.16.840.1.101.3.4.1.46", 5),
+    "HKDF-SHA384": ("2.16.840.1.101.3.4.2.2", 5),
 }
 
 
@@ -91,6 +106,12 @@ def constant_time_equal(left: bytes, right: bytes) -> bool:
     return hmac.compare_digest(left, right)
 
 
+def _zero_bytearray(buf: bytearray) -> None:
+    """Overwrite a mutable secret byte buffer with zeros in place."""
+    for idx in range(len(buf)):
+        buf[idx] = 0
+
+
 def _atomic_write_secret(path: Path, content: bytes) -> None:
     """Write sensitive key material atomically with strict 0o600 permissions."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,7 +136,9 @@ class PublicIdentityBundle(BaseModel):
 
     node_id: str
     key_id: str
+    key_version: int = Field(default=1, ge=1)
     created_at_utc: datetime
+    retired_at_utc: datetime | None = None
     primary_sig_alg: str
     primary_sig_public_b64: str
     primary_sig_fingerprint: str
@@ -127,6 +150,27 @@ class PublicIdentityBundle(BaseModel):
     kem_fingerprint: str
     x25519_public_b64: str
     x25519_fingerprint: str
+
+
+class TrustKeyring(BaseModel):
+    """Versioned trust keyring retaining historical public keys for zero-downtime verification."""
+
+    node_id: str
+    current_key_id: str
+    current_version: int = Field(default=1, ge=1)
+    updated_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    keys: dict[str, PublicIdentityBundle] = Field(default_factory=dict)
+
+    def get_by_key_id(self, key_id: str) -> PublicIdentityBundle | None:
+        """Look up a current or historical public key bundle by `key_id`."""
+        return self.keys.get(key_id)
+
+    def get_by_version(self, key_version: int) -> PublicIdentityBundle | None:
+        """Look up a current or historical public key bundle by `key_version`."""
+        for bundle in self.keys.values():
+            if bundle.key_version == key_version:
+                return bundle
+        return None
 
 
 class DeviceIdentity:
@@ -147,19 +191,21 @@ class DeviceIdentity:
         kem_public: bytes,
         kem_secret: bytes,
         x25519_private: X25519PrivateKey,
+        key_version: int = 1,
     ) -> None:
         self.node_id = node_id
         self.key_id = key_id
+        self.key_version = key_version
         self.created_at_utc = created_at_utc
         self.primary_sig_alg = primary_sig_alg
         self.primary_sig_public = primary_sig_public
-        self._primary_sig_secret = primary_sig_secret
+        self._primary_sig_secret = bytearray(primary_sig_secret)
         self.fallback_sig_alg = fallback_sig_alg
         self.fallback_sig_public = fallback_sig_public
-        self._fallback_sig_secret = fallback_sig_secret
+        self._fallback_sig_secret = bytearray(fallback_sig_secret)
         self.kem_alg = kem_alg
         self.kem_public = kem_public
-        self._kem_secret = kem_secret
+        self._kem_secret = bytearray(kem_secret)
         self._x25519_private = x25519_private
         self.x25519_public_bytes: bytes = x25519_private.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
@@ -176,20 +222,26 @@ class DeviceIdentity:
 
     @property
     def primary_sig_secret(self) -> bytes:
-        return self._primary_sig_secret
+        return bytes(self._primary_sig_secret)
 
     @property
     def fallback_sig_secret(self) -> bytes:
-        return self._fallback_sig_secret
+        return bytes(self._fallback_sig_secret)
 
     @property
     def kem_secret(self) -> bytes:
-        return self._kem_secret
+        return bytes(self._kem_secret)
+
+    def zeroize_secrets(self) -> None:
+        """Zero out mutable in-memory PQC private key buffers upon retirement."""
+        _zero_bytearray(self._primary_sig_secret)
+        _zero_bytearray(self._fallback_sig_secret)
+        _zero_bytearray(self._kem_secret)
 
     def sign(self, message: bytes, use_fallback: bool = False) -> tuple[str, bytes]:
         """Sign `message` using ML-DSA (primary) or SLH-DSA (fallback)."""
         alg = self.fallback_sig_alg if use_fallback else self.primary_sig_alg
-        secret = self._fallback_sig_secret if use_fallback else self._primary_sig_secret
+        secret = bytes(self._fallback_sig_secret if use_fallback else self._primary_sig_secret)
         with oqs.Signature(alg, secret_key=secret) as signer:
             signature: bytes = signer.sign(message)
         return alg, signature
@@ -204,16 +256,18 @@ class DeviceIdentity:
 
     def decap_kem(self, ciphertext: bytes) -> bytes:
         """Decapsulate a post-quantum ML-KEM shared secret."""
-        with oqs.KeyEncapsulation(self.kem_alg, secret_key=self._kem_secret) as kem:
+        with oqs.KeyEncapsulation(self.kem_alg, secret_key=bytes(self._kem_secret)) as kem:
             shared: bytes = kem.decap_secret(ciphertext)
         return shared
 
-    def public_bundle(self) -> PublicIdentityBundle:
+    def public_bundle(self, retired_at_utc: datetime | None = None) -> PublicIdentityBundle:
         """Return a serializable public-key-only representation of this device identity."""
         return PublicIdentityBundle(
             node_id=self.node_id,
             key_id=self.key_id,
+            key_version=self.key_version,
             created_at_utc=self.created_at_utc,
+            retired_at_utc=retired_at_utc,
             primary_sig_alg=self.primary_sig_alg,
             primary_sig_public_b64=base64.b64encode(self.primary_sig_public).decode("ascii"),
             primary_sig_fingerprint=compute_key_fingerprint(self.primary_sig_public),
@@ -234,16 +288,18 @@ class CBOMRecord(BaseModel):
     generated_at_utc: datetime = Field(default_factory=lambda: datetime.now(UTC))
     node_id: str
     key_id: str
+    key_version: int = 1
     liboqs_version: str
     algorithms: list[dict[str, Any]]
 
 
 class IdentityManager:
-    """Manages generation, secure persistence (0o600), loading, and rotation of PQC identities."""
+    """Manages generation, secure persistence (0o600), zero-downtime rotation, and CBOM export."""
 
     KEYFILE_NAME = "device_identity.secret.json"
     SEALED_KEYFILE_NAME = "device_identity.sealed.json"
     PUBFILE_NAME = "device_identity.public.json"
+    KEYRING_NAME = "keyring.json"
 
     def __init__(
         self,
@@ -267,7 +323,11 @@ class IdentityManager:
     def public_path(self) -> Path:
         return self._keys_dir / self.PUBFILE_NAME
 
-    def generate(self) -> DeviceIdentity:
+    @property
+    def keyring_path(self) -> Path:
+        return self._keys_dir / self.KEYRING_NAME
+
+    def generate(self, key_version: int = 1) -> DeviceIdentity:
         """Generate a fresh hybrid PQC + classical device identity using liboqs and X25519."""
         primary_alg = resolve_oqs_sig_algorithm(self._config.primary_sig_alg)
         fallback_alg = resolve_oqs_sig_algorithm(self._config.fallback_sig_alg)
@@ -286,10 +346,11 @@ class IdentityManager:
             kem_sec: bytes = kem.export_secret_key()
 
         x25519_priv = X25519PrivateKey.generate()
-        key_id = f"kid-{uuid.uuid4().hex[:16]}"
+        key_id = f"kid-v{key_version}-{uuid.uuid4().hex[:14]}"
         identity = DeviceIdentity(
             node_id=self._node_id,
             key_id=key_id,
+            key_version=key_version,
             created_at_utc=datetime.now(UTC),
             primary_sig_alg=primary_alg,
             primary_sig_public=primary_pub,
@@ -303,10 +364,12 @@ class IdentityManager:
             x25519_private=x25519_priv,
         )
         self.save(identity)
+        self._register_in_keyring(identity.public_bundle())
         logger.info(
             "device_identity_generated",
             node_id=self._node_id,
             key_id=key_id,
+            key_version=key_version,
             primary_sig=primary_alg,
             fallback_sig=fallback_alg,
             kem=kem_alg,
@@ -328,6 +391,7 @@ class IdentityManager:
         secret_doc = {
             "node_id": identity.node_id,
             "key_id": identity.key_id,
+            "key_version": identity.key_version,
             "created_at_utc": identity.created_at_utc.isoformat(),
             "primary_sig_alg": identity.primary_sig_alg,
             "primary_sig_public_b64": base64.b64encode(identity.primary_sig_public).decode("ascii"),
@@ -364,6 +428,7 @@ class IdentityManager:
         return DeviceIdentity(
             node_id=raw["node_id"],
             key_id=raw["key_id"],
+            key_version=int(raw.get("key_version", 1)),
             created_at_utc=datetime.fromisoformat(raw["created_at_utc"]),
             primary_sig_alg=resolve_oqs_sig_algorithm(raw["primary_sig_alg"]),
             primary_sig_public=base64.b64decode(raw["primary_sig_public_b64"]),
@@ -376,6 +441,49 @@ class IdentityManager:
             kem_secret=base64.b64decode(raw["kem_secret_b64"]),
             x25519_private=x25519_priv,
         )
+
+    def load_keyring(self) -> TrustKeyring:
+        """Load the persisted versioned trust keyring (`0o600`), enforcing file permissions."""
+        if not self.keyring_path.is_file():
+            identity = self.load_or_create()
+            return self._register_in_keyring(identity.public_bundle())
+        mode = self.keyring_path.stat().st_mode & 0o777
+        if mode & 0o077:
+            raise PermissionError(
+                f"Insecure permissions {oct(mode)} on {self.keyring_path}; expected 0o600"
+            )
+        return TrustKeyring.model_validate(orjson.loads(self.keyring_path.read_bytes()))
+
+    def save_keyring(self, keyring: TrustKeyring) -> None:
+        """Atomically persist the versioned trust keyring with 0o600 permissions."""
+        payload = orjson.dumps(
+            keyring.model_dump(mode="json"),
+            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+        )
+        _atomic_write_secret(self.keyring_path, payload)
+
+    def _register_in_keyring(
+        self,
+        bundle: PublicIdentityBundle,
+        retired_previous: PublicIdentityBundle | None = None,
+    ) -> TrustKeyring:
+        if self.keyring_path.is_file():
+            kr = self.load_keyring()
+        else:
+            kr = TrustKeyring(
+                node_id=bundle.node_id,
+                current_key_id=bundle.key_id,
+                current_version=bundle.key_version,
+                keys={},
+            )
+        if retired_previous is not None:
+            kr.keys[retired_previous.key_id] = retired_previous
+        kr.keys[bundle.key_id] = bundle
+        kr.current_key_id = bundle.key_id
+        kr.current_version = bundle.key_version
+        kr.updated_at_utc = datetime.now(UTC)
+        self.save_keyring(kr)
+        return kr
 
     def seal_identity(
         self,
@@ -427,18 +535,74 @@ class IdentityManager:
             )
         return self._deserialize_secret_bytes(self.secret_path.read_bytes())
 
+    def rotate_keys(
+        self,
+        sealer: HardwareSealer | None = None,
+        metrics: QAegisMetrics | None = None,
+    ) -> tuple[DeviceIdentity, TrustKeyring]:
+        """Perform zero-downtime PQC key rotation while preserving historical verification keys.
+
+        1. Captures the outgoing public bundle with a retirement timestamp into `keyring.json`.
+        2. Overwrites & zeroizes outgoing private keys in memory and archives public history.
+        3. Generates fresh ML-DSA-65, SLH-DSA, ML-KEM-768, and X25519 keys at `key_version + 1`.
+        4. Optionally hardware-seals the rotated secret identity using `sealer`.
+        """
+        retired_bundle: PublicIdentityBundle | None = None
+        next_version = 1
+
+        if self.secret_path.is_file():
+            previous = self.load()
+            retired_bundle = previous.public_bundle(retired_at_utc=datetime.now(UTC))
+            next_version = previous.key_version + 1
+            previous.zeroize_secrets()
+            archive_name = (
+                f"archived_v{previous.key_version}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+                ".public.json"
+            )
+            (self._keys_dir / archive_name).write_bytes(
+                orjson.dumps(
+                    retired_bundle.model_dump(mode="json"),
+                    option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+                )
+            )
+        elif self.public_path.is_file():
+            prev_pub = PublicIdentityBundle.model_validate(
+                orjson.loads(self.public_path.read_bytes())
+            )
+            retired_bundle = prev_pub.model_copy(update={"retired_at_utc": datetime.now(UTC)})
+            next_version = prev_pub.key_version + 1
+
+        new_identity = self.generate(key_version=next_version)
+        keyring = self._register_in_keyring(
+            new_identity.public_bundle(),
+            retired_previous=retired_bundle,
+        )
+        if sealer is not None:
+            self.seal_identity(new_identity, sealer, remove_plaintext_secret=False)
+
+        if metrics is not None:
+            metrics.identity_key_rotations.labels(node_id=self._node_id).inc()
+
+        logger.info(
+            "device_identity_rotated",
+            node_id=self._node_id,
+            new_key_id=new_identity.key_id,
+            new_version=new_identity.key_version,
+            keyring_size=len(keyring.keys),
+        )
+        return new_identity, keyring
+
     def rotate(self) -> DeviceIdentity:
-        """Archive the previous public bundle and generate a fresh rotated identity."""
-        if self.public_path.is_file():
-            archive_name = f"archived_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}.public.json"
-            (self._keys_dir / archive_name).write_bytes(self.public_path.read_bytes())
-        return self.generate()
+        """Rotate keys and return the newly active DeviceIdentity."""
+        new_identity, _keyring = self.rotate_keys()
+        return new_identity
 
     def generate_cbom(self, identity: DeviceIdentity) -> CBOMRecord:
         """Produce a structured Cryptographic Bill of Materials (CBOM) for auditing."""
         return CBOMRecord(
             node_id=identity.node_id,
             key_id=identity.key_id,
+            key_version=identity.key_version,
             liboqs_version=str(oqs.oqs_version()),
             algorithms=[
                 {
@@ -489,3 +653,83 @@ class IdentityManager:
                 },
             ],
         )
+
+    def generate_cyclonedx_cbom(self, identity: DeviceIdentity) -> dict[str, Any]:
+        """Export a standards-compliant CycloneDX 1.6 Cryptographic Bill of Materials (CBOM)."""
+        cbom = self.generate_cbom(identity)
+        components: list[dict[str, Any]] = []
+        for idx, alg in enumerate(cbom.algorithms, start=1):
+            alg_name = str(alg["algorithm"])
+            oid, nist_level = _ALGORITHM_OIDS.get(alg_name, ("1.3.6.1.4.1.0", 0))
+            primitive = (
+                "signature"
+                if "signature" in str(alg["role"])
+                else "kem"
+                if "kem" in str(alg["role"])
+                else "key-agree"
+                if "kex" in str(alg["role"])
+                else "ae"
+                if "aead" in str(alg["role"])
+                else "kdf"
+            )
+            props: list[dict[str, str]] = [
+                {"name": "qaegis:role", "value": str(alg["role"])},
+                {"name": "qaegis:standard", "value": str(alg["standard"])},
+                {"name": "qaegis:quantum_safe", "value": str(alg["quantum_safe"]).lower()},
+            ]
+            if "public_key_bytes" in alg:
+                props.append(
+                    {"name": "qaegis:public_key_bytes", "value": str(alg["public_key_bytes"])}
+                )
+            if "fingerprint_sha3_256" in alg:
+                props.append(
+                    {
+                        "name": "qaegis:fingerprint_sha3_256",
+                        "value": str(alg["fingerprint_sha3_256"]),
+                    }
+                )
+            components.append(
+                {
+                    "type": "cryptographic-asset",
+                    "bom-ref": f"crypto-{idx}-{alg_name.lower()}",
+                    "name": alg_name,
+                    "cryptoProperties": {
+                        "assetType": "algorithm",
+                        "oid": oid,
+                        "algorithmProperties": {
+                            "primitive": primitive,
+                            "nistQuantumSecurityLevel": nist_level,
+                        },
+                    },
+                    "properties": props,
+                }
+            )
+
+        return {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.6",
+            "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+            "version": identity.key_version,
+            "metadata": {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "tools": {
+                    "components": [
+                        {
+                            "type": "application",
+                            "name": "qaegis",
+                            "version": "0.4.0",
+                        }
+                    ]
+                },
+                "component": {
+                    "type": "device",
+                    "name": identity.node_id,
+                    "version": f"key-v{identity.key_version}",
+                    "properties": [
+                        {"name": "qaegis:key_id", "value": identity.key_id},
+                        {"name": "qaegis:liboqs_version", "value": cbom.liboqs_version},
+                    ],
+                },
+            },
+            "components": components,
+        }

@@ -1,0 +1,221 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Production observability dashboard for Q-Aegis Quantum-Secured Autonomous Edge-AI nodes.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum by (algorithm) (rate(qaegis_reality_stamps_signed_total[5m]))",
+          "legendFormat": "{{algorithm}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Proof-of-Reality PQC Stamp Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "sum by (tier) (rate(qaegis_chameleon_tier_transitions_total[5m]))",
+          "legendFormat": "{{tier}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Quantum Chameleon Threat Tier Decisions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, operation, algorithm) (rate(qaegis_crypto_operation_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{operation}} ({{algorithm}})",
+          "refId": "A"
+        }
+      ],
+      "title": "PQC & Hybrid Crypto Operation Latency (p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum by (reason) (increase(qaegis_bus_auth_rejections_total[15m]))",
+          "legendFormat": "CurveZMQ Reject ({{reason}})",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (peer_node_id) (increase(qaegis_gossip_equivocation_total[15m]))",
+          "legendFormat": "Merkle Equivocation ({{peer_node_id}})",
+          "refId": "B"
+        }
+      ],
+      "title": "Security Alerts: CurveZMQ Rejections & Merkle Equivocation",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum by (backend, status) (increase(qaegis_dreamer_qaoa_solves_total[1h]))",
+          "legendFormat": "{{backend}} ({{status}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Night-Mode QAOA Solves by Backend",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "sum by (outcome) (increase(qaegis_dreamer_policy_updates_total[24h]))",
+          "legendFormat": "Policy {{outcome}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (technique) (increase(qaegis_mitigation_runs_total[24h]))",
+          "legendFormat": "Mitigation {{technique}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Policy Rollback Guard & ZNE/TREX Mitigation Runs",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "text": "DAY" }, "1": { "text": "NIGHT" }, "2": { "text": "TRANSITION" }, "-1": { "text": "SHUTDOWN" } }, "type": "value" }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "qaegis_lifecycle_mode",
+          "legendFormat": "Mode",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(qaegis_identity_key_rotations_total)",
+          "legendFormat": "Total Key Rotations",
+          "refId": "B"
+        }
+      ],
+      "title": "Lifecycle Operating Mode & PQC Key Rotations",
+      "type": "stat"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["qaegis", "pqc", "quantum", "edge-ai"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "name": "DS_PROMETHEUS",
+        "query": "prometheus",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Q-Aegis Quantum-Secured Edge-AI Platform",
+  "uid": "qaegis-prod-v04",
+  "version": 1
+}

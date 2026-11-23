@@ -118,6 +118,12 @@ class QAegisMetrics:
             labelnames=("technique",),
             registry=self.registry,
         )
+        self.identity_key_rotations = Counter(
+            "qaegis_identity_key_rotations_total",
+            "Total zero-downtime PQC device identity key rotations executed",
+            labelnames=("node_id",),
+            registry=self.registry,
+        )
         self.lifecycle_mode = Gauge(
             "qaegis_lifecycle_mode",
             "Current operating mode (0=DAY, 1=NIGHT, 2=TRANSITIONING, -1=SHUTDOWN)",

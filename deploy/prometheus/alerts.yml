@@ -1,0 +1,53 @@
+groups:
+  - name: qaegis_security_and_quantum_alerts
+    interval: 30s
+    rules:
+      - alert: QAegisGossipEquivocationDetected
+        expr: increase(qaegis_gossip_equivocation_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          subsystem: reality_stamp
+        annotations:
+          summary: "Split-view Merkle root equivocation detected from peer {{ $labels.peer_node_id }}"
+          description: "Peer {{ $labels.peer_node_id }} signed two conflicting Merkle roots for the same tree size. Immediately quarantine the peer and inspect forensic logs."
+
+      - alert: QAegisQRNGHealthFailure
+        expr: increase(qaegis_qrng_health_checks_total{passed="false"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          subsystem: reality_stamp
+        annotations:
+          summary: "NIST SP 800-22 / SP 800-90B entropy validation failure detected"
+          description: "Q-Aegis rejected harvested entropy failing statistical health checks. Verify QRNG endpoint connectivity and hardware RNG integrity."
+
+      - alert: QAegisCurveZMQAuthSpike
+        expr: increase(qaegis_bus_auth_rejections_total[5m]) >= 5
+        for: 1m
+        labels:
+          severity: warning
+          subsystem: core_bus
+        annotations:
+          summary: "Elevated CurveZMQ ZAP authentication rejections ({{ $value }} in 5m)"
+          description: "Unauthorized Curve25519 client keys attempted to connect to the Q-Aegis EventBus. Inspect source IPs and verify fleet allowlist synchronization."
+
+      - alert: QAegisPolicyRollbackTriggered
+        expr: increase(qaegis_dreamer_policy_updates_total{outcome="rolled_back"}[1h]) >= 2
+        for: 0m
+        labels:
+          severity: warning
+          subsystem: quantum_dreamer
+        annotations:
+          summary: "Repeated Night-Mode policy rollbacks on Q-Aegis node"
+          description: "Multiple Night-Mode QAOA policy candidates failed held-out validation and were rolled back. Check QPU noise levels or enable --mitigation both."
+
+      - alert: QAegisHighPqcSigningLatency
+        expr: histogram_quantile(0.95, sum by (le, algorithm) (rate(qaegis_crypto_operation_duration_seconds_bucket{operation="sign",algorithm=~"ML-DSA.*"}[5m]))) > 0.015
+        for: 5m
+        labels:
+          severity: warning
+          subsystem: reality_stamp
+        annotations:
+          summary: "p95 ML-DSA signing latency exceeded 15ms ({{ $value }}s)"
+          description: "Post-quantum digital signature latency is elevated; check host CPU thermal throttling or background contention."

@@ -27,12 +27,13 @@ from qaegis.core.hardware_seal import (
     TPM2Sealer,
     detect_pkcs11_library,
 )
-from qaegis.core.identity import IdentityManager, PublicIdentityBundle
+from qaegis.core.identity import IdentityManager, PublicIdentityBundle, TrustKeyring
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
+from qaegis.demo import run_interactive_demo
 from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
-from qaegis.modules.quantum_dreamer.service import QuantumDreamerService
+from qaegis.modules.quantum_dreamer.service import NightCycleReport, QuantumDreamerService
 from qaegis.modules.quantum_entropy.harvester import (
     QuantumDistributionBatch,
     QuantumDistributionHarvester,
@@ -123,26 +124,112 @@ def cbom_cmd(
         Path | None,
         typer.Option("--config", "-c", help="Optional YAML configuration file."),
     ] = None,
+    fmt: Annotated[
+        str,
+        typer.Option("--format", "-f", help="Export format: json or cyclonedx (CycloneDX 1.6)."),
+    ] = "json",
     output: Annotated[
         Path | None,
         typer.Option("--output", "-o", help="Write CBOM JSON to a file instead of stdout."),
     ] = None,
 ) -> None:
-    """Export a Cryptographic Bill of Materials (CBOM) for PQC compliance auditing."""
+    """Export a Cryptographic Bill of Materials (CBOM) in native JSON or CycloneDX 1.6 format."""
     cfg = load_config(config_file)
     cfg.ensure_directories()
     mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
     identity = mgr.load_or_create()
-    cbom = mgr.generate_cbom(identity)
+
+    if fmt == "json":
+        doc: dict[str, object] = mgr.generate_cbom(identity).model_dump(mode="json")
+    elif fmt == "cyclonedx":
+        doc = mgr.generate_cyclonedx_cbom(identity)
+    else:
+        console.print(f"[red]Unsupported CBOM format '{fmt}'. Use json or cyclonedx.[/red]")
+        raise typer.Exit(code=2)
+
     rendered = orjson.dumps(
-        cbom.model_dump(mode="json"),
+        doc,
         option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
     ).decode("utf-8")
     if output is not None:
         output.write_text(rendered, encoding="utf-8")
-        console.print(f"[green]CBOM written to {output}[/green]")
+        console.print(f"[green]CBOM ({fmt}) written to {output}[/green]")
     else:
         typer.echo(rendered)
+
+
+@app.command("rotate-keys")
+def rotate_keys_cmd(
+    seal_backend: Annotated[
+        str | None,
+        typer.Option("--seal-backend", help="Optional hardware sealer: pkcs11 or tpm2."),
+    ] = None,
+    token_label: Annotated[
+        str | None,
+        typer.Option("--token-label", help="PKCS#11 token label (when --seal-backend pkcs11)."),
+    ] = None,
+    user_pin: Annotated[
+        str | None,
+        typer.Option("--pin", help="PKCS#11 user PIN (or set QAEGIS_PKCS11_PIN)."),
+    ] = None,
+    library_path: Annotated[
+        Path | None,
+        typer.Option("--pkcs11-lib", help="Optional explicit PKCS#11 shared library path."),
+    ] = None,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Rotate node PQC keys with zero downtime while preserving historical keyring verification."""
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    metrics = QAegisMetrics()
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+
+    sealer: HardwareSealer | None = None
+    if seal_backend == "pkcs11":
+        sealer = PKCS11Sealer(
+            token_label=token_label or cfg.identity.pkcs11_token_label,
+            user_pin=user_pin,
+            key_label=cfg.identity.pkcs11_key_label,
+            library_path=library_path or cfg.identity.pkcs11_library,
+        )
+    elif seal_backend == "tpm2":
+        sealer = TPM2Sealer(
+            device_path=Path(cfg.identity.tpm2_device),
+            pcr_spec=cfg.identity.tpm2_pcr_spec,
+        )
+    elif seal_backend is not None:
+        console.print(
+            f"[red]Unsupported --seal-backend '{seal_backend}'. Use pkcs11 or tpm2.[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    new_id, keyring = mgr.rotate_keys(sealer=sealer, metrics=metrics)
+    bundle = new_id.public_bundle()
+
+    table = Table(title=f"Q-Aegis Zero-Downtime Key Rotation ({bundle.node_id})")
+    table.add_column("Property", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("New Key Version", f"v{bundle.key_version}")
+    table.add_row("New Key ID", bundle.key_id)
+    table.add_row("ML-DSA-65 Fingerprint", bundle.primary_sig_fingerprint[:24] + "...")
+    table.add_row("Historical Keyring Entries", str(len(keyring.keys)))
+    table.add_row("Keyring File", str(mgr.keyring_path))
+    table.add_row("Hardware Sealed", seal_backend or "none")
+    console.print(table)
+
+
+@app.command("demo")
+def demo_cmd(
+    fast: Annotated[
+        bool,
+        typer.Option("--fast", help="Run reduced QAOA shots/iterations for quick CI demos."),
+    ] = False,
+) -> None:
+    """Run an interactive end-to-end live demonstration of all five Q-Aegis subsystems."""
+    asyncio.run(run_interactive_demo(fast=fast, console=console))
 
 
 @app.command("doctor")
@@ -332,14 +419,29 @@ def verify_stamp_cmd(
         str | None,
         typer.Option("--fingerprint", help="Optional expected SHA3-256 public key fingerprint."),
     ] = None,
+    keyring_file: Annotated[
+        Path | None,
+        typer.Option("--keyring", "-k", help="Optional historical TrustKeyring JSON file."),
+    ] = None,
 ) -> None:
-    """Offline cryptographic verifier for a Proof-of-Reality stamp and Merkle inclusion proof."""
+    """Offline cryptographic verifier for a Proof-of-Reality stamp, keyring, and Merkle proof."""
     if not stamp_file.is_file():
         console.print(f"[red]Stamp file not found: {stamp_file}[/red]")
         raise typer.Exit(code=2)
 
     stamp = RealityStamp.model_validate(orjson.loads(stamp_file.read_bytes()))
-    result = verify_reality_stamp(stamp, expected_public_key_fingerprint=expected_fingerprint)
+    keyring: TrustKeyring | None = None
+    if keyring_file is not None:
+        if not keyring_file.is_file():
+            console.print(f"[red]Keyring file not found: {keyring_file}[/red]")
+            raise typer.Exit(code=2)
+        keyring = TrustKeyring.model_validate(orjson.loads(keyring_file.read_bytes()))
+
+    result = verify_reality_stamp(
+        stamp,
+        expected_public_key_fingerprint=expected_fingerprint,
+        keyring=keyring,
+    )
 
     table = Table(title=f"Reality Stamp Verification ({result.stamp_id})")
     table.add_column("Check", style="cyan")
@@ -424,7 +526,7 @@ def dream_cmd(
     )
     cfg.ensure_directories()
 
-    async def _run() -> dict[str, object]:
+    async def _run() -> NightCycleReport:
         metrics = QAegisMetrics()
         bus = EventBus(config=cfg.bus, metrics=metrics)
         storage = StorageEngine(cfg.db_path)
@@ -443,30 +545,26 @@ def dream_cmd(
             edges = [(i, (i + 1) % nodes, 1.0 + 0.5 * (i % 2)) for i in range(nodes)]
             qubo = build_maxcut_qubo(num_nodes=nodes, weighted_edges=edges)
             await dreamer.enqueue_day_problem(qubo, priority=90, policy_name="cli_demo_policy")
-            report = await dreamer.run_night_cycle(max_problems=4)
-            return report.model_dump(mode="json")
+            return await dreamer.run_night_cycle(max_problems=4)
         finally:
             await storage.close()
             await bus.stop()
 
-    report_dict = asyncio.run(_run())
-    solutions = report_dict["solutions"]
-    assert isinstance(solutions, list)
+    report = asyncio.run(_run())
     table = Table(title="Quantum Dreaming Night-Mode Results")
     table.add_column("Problem ID", style="cyan")
     table.add_column("Backend", style="magenta")
     table.add_column("Best Bitstring", style="green")
     table.add_column("Energy", style="yellow")
     table.add_column("Approx Ratio", style="green")
-    for sol in solutions:
-        assert isinstance(sol, dict)
-        ratio = sol.get("approximation_ratio")
+    for sol in report.solutions:
+        ratio = sol.approximation_ratio
         table.add_row(
-            str(sol["problem_id"]),
-            str(sol["backend_name"]),
-            str(sol["optimal_bitstring"]),
-            f"{float(sol['optimal_energy']):.3f}",
-            f"{float(ratio):.4f}" if ratio is not None else "n/a",
+            sol.problem_id,
+            sol.backend_name,
+            sol.optimal_bitstring,
+            f"{sol.optimal_energy:.3f}",
+            f"{ratio:.4f}" if ratio is not None else "n/a",
         )
     console.print(table)
 

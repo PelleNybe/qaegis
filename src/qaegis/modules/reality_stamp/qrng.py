@@ -233,7 +233,8 @@ class MultiSourceQrng:
                 digest=hashlib.sha256(mixed).hexdigest()[:16],
             )
 
-        assert last_report is not None
+        if last_report is None:
+            raise RuntimeError("QRNG harvest failed without producing a validation report")
         raise EntropyHealthError(
             "Harvested entropy failed NIST SP 800-22 / SP 800-90B validation across all retries",
             report=last_report,

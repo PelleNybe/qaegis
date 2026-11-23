@@ -167,7 +167,8 @@ class MerkleGossipNode:
     ) -> str:
         """Start this node's CurveZMQ gossip publisher socket with ZAP authentication."""
         if self._running:
-            assert self._bound_endpoint is not None
+            if self._bound_endpoint is None:
+                raise RuntimeError("Gossip node is running without a bound endpoint")
             return self._bound_endpoint
         self._running = True
         self._ctx = zmq.asyncio.Context()

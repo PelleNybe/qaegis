@@ -35,11 +35,11 @@ async def test_federated_three_node_deduplication_budget_and_local_rollback(
         backend=AerStatevectorBackend(),
     )
 
-    # Budget allows 2 QPU jobs (12.0s budget, each job estimated at 5.0s -> 3rd unique job deferred)
+    # Budget allows 2 QPU jobs (45.0s budget, 20.0s each -> 3rd unique job deferred)
     scheduler = FederatedScheduler(
         coordinator_identity=coord_id,
         solver=solver,
-        max_qpu_seconds_per_night=12.0,
+        max_qpu_seconds_per_night=45.0,
     )
 
     # Node 1 and Node 2 submit RELABELED ISOMORPHIC 4-node Max-Cut graphs:
@@ -60,7 +60,7 @@ async def test_federated_three_node_deduplication_budget_and_local_rollback(
             node_id="drone-1",
             policy_name="routing_policy",
             priority=95,
-            estimated_qpu_seconds=5.0,
+            estimated_qpu_seconds=20.0,
             qubo=qubo_n1,
         )
     )
@@ -69,7 +69,7 @@ async def test_federated_three_node_deduplication_budget_and_local_rollback(
             node_id="drone-2",
             policy_name="routing_policy",
             priority=90,
-            estimated_qpu_seconds=5.0,
+            estimated_qpu_seconds=20.0,
             qubo=qubo_n2,
         )
     )
@@ -78,7 +78,7 @@ async def test_federated_three_node_deduplication_budget_and_local_rollback(
             node_id="drone-3",
             policy_name="routing_policy",
             priority=80,
-            estimated_qpu_seconds=5.0,
+            estimated_qpu_seconds=20.0,
             qubo=qubo_n3_hi,
         )
     )
@@ -87,7 +87,7 @@ async def test_federated_three_node_deduplication_budget_and_local_rollback(
             node_id="drone-3",
             policy_name="low_priority_policy",
             priority=10,
-            estimated_qpu_seconds=5.0,
+            estimated_qpu_seconds=20.0,
             qubo=qubo_n3_lo,
         )
     )
