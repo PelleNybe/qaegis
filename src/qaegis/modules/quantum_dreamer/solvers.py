@@ -44,6 +44,8 @@ class QaoaSolution(BaseModel):
     top_probabilities: dict[str, float] = Field(default_factory=dict)
     openqasm3: str
     solve_time_s: float
+    mitigation_mode: str = "none"
+    mitigated_expected_energy: float | None = None
 
 
 def build_qaoa_circuit(
@@ -176,6 +178,11 @@ class AerNoisyBackend(QuantumBackend):
     @property
     def name(self) -> str:
         return "aer_noisy"
+
+    @property
+    def simulator(self) -> AerSimulator:
+        """Expose underlying noisy AerSimulator for ZNE/TREX error mitigation pipelines."""
+        return self._sim
 
     def sample_distribution(
         self,
@@ -398,6 +405,28 @@ class QaoaSolver:
         final_qc = build_qaoa_circuit(hamiltonian, opt_gammas, opt_betas, measure=True)
         qasm3_str = str(qasm3.dumps(final_qc))
 
+        mitigated_energy: float | None = None
+        if self._config.mitigation_mode != "none":
+            from qaegis.modules.quantum_dreamer.mitigation import ErrorMitigationPipeline
+
+            sim = (
+                self._backend.simulator
+                if isinstance(self._backend, AerNoisyBackend)
+                else AerNoisyBackend().simulator
+            )
+            pipeline = ErrorMitigationPipeline(
+                simulator=sim,
+                mode=self._config.mitigation_mode,
+                scale_factors=self._config.zne_scale_factors,
+                extrapolation=self._config.zne_extrapolation,
+            )
+            mit_res = pipeline.evaluate_expectation(
+                final_qc,
+                hamiltonian=hamiltonian,
+                shots=shots,
+            )
+            mitigated_energy = mit_res.mitigated_energy
+
         return QaoaSolution(
             problem_id=problem.problem_id,
             backend_name=self._backend.name,
@@ -413,4 +442,6 @@ class QaoaSolver:
             top_probabilities=top_probs,
             openqasm3=qasm3_str,
             solve_time_s=time.perf_counter() - t0,
+            mitigation_mode=self._config.mitigation_mode,
+            mitigated_expected_energy=mitigated_energy,
         )

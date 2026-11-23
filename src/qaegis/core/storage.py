@@ -78,6 +78,26 @@ MIGRATIONS: list[tuple[int, str]] = [
         );
         """,
     ),
+    (
+        2,
+        """
+        CREATE TABLE IF NOT EXISTS gossip_checkpoints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            peer_node_id TEXT NOT NULL,
+            tree_size INTEGER NOT NULL,
+            merkle_root TEXT NOT NULL,
+            timestamp_utc TEXT NOT NULL,
+            sig_alg TEXT NOT NULL,
+            signature_b64 TEXT NOT NULL,
+            public_key_fingerprint TEXT NOT NULL,
+            verified_at_utc TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'VERIFIED'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gossip_peer_size
+            ON gossip_checkpoints (peer_node_id, tree_size DESC);
+        """,
+    ),
 ]
 
 
@@ -497,3 +517,76 @@ class StorageEngine:
             else None,
             row_hash=str(row["row_hash"]),
         )
+
+    async def save_gossip_checkpoint(
+        self,
+        peer_node_id: str,
+        tree_size: int,
+        merkle_root: str,
+        timestamp_utc: str,
+        sig_alg: str,
+        signature_b64: str,
+        public_key_fingerprint: str,
+        status: str = "VERIFIED",
+    ) -> int:
+        """Persist a verified peer Merkle root checkpoint from the gossip mesh."""
+        verified_at = datetime.now(UTC).isoformat()
+        async with self.transaction() as conn:
+            cursor = await conn.execute(
+                """
+                INSERT INTO gossip_checkpoints (
+                    peer_node_id, tree_size, merkle_root, timestamp_utc,
+                    sig_alg, signature_b64, public_key_fingerprint, verified_at_utc, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    peer_node_id,
+                    tree_size,
+                    merkle_root,
+                    timestamp_utc,
+                    sig_alg,
+                    signature_b64,
+                    public_key_fingerprint,
+                    verified_at,
+                    status,
+                ),
+            )
+            return int(cursor.lastrowid or 0)
+
+    async def get_peer_checkpoint_at_size(
+        self,
+        peer_node_id: str,
+        tree_size: int,
+    ) -> dict[str, Any] | None:
+        """Return an existing verified checkpoint for `peer_node_id` at exact `tree_size`."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT * FROM gossip_checkpoints
+            WHERE peer_node_id = ? AND tree_size = ? AND status = 'VERIFIED'
+            ORDER BY id ASC LIMIT 1;
+            """,
+            (peer_node_id, tree_size),
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    async def list_gossip_checkpoints(
+        self,
+        peer_node_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List persisted peer Merkle checkpoints ordered by newest first."""
+        conn = self._require_conn()
+        if peer_node_id is not None:
+            cursor = await conn.execute(
+                """
+                SELECT * FROM gossip_checkpoints
+                WHERE peer_node_id = ?
+                ORDER BY tree_size DESC, id DESC;
+                """,
+                (peer_node_id,),
+            )
+        else:
+            cursor = await conn.execute("SELECT * FROM gossip_checkpoints ORDER BY id DESC;")
+        rows = list(await cursor.fetchall())
+        return [dict(r) for r in rows]

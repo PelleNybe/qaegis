@@ -154,7 +154,7 @@ def test_pqc_identity_lifecycle_and_permissions(qaegis_config: QAegisConfig) -> 
 
 @pytest.mark.unit
 async def test_storage_wal_audit_chain_and_dream_queue(storage: StorageEngine) -> None:
-    assert await storage.get_schema_version() == 1
+    assert await storage.get_schema_version() == 2
     r1 = await storage.append_audit_event("boot", "core", {"version": "0.1.0"})
     r2 = await storage.append_audit_event("stamp", "reality_stamp", {"id": "s-1"})
     assert r2.prev_hash == r1.entry_hash

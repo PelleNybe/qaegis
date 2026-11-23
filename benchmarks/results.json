@@ -1,5 +1,5 @@
 {
-  "timestamp_utc": "2026-11-23T22:08:34.708657+00:00",
+  "timestamp_utc": "2026-11-23T22:43:08.085996+00:00",
   "environment": {
     "platform": "Linux x86_64",
     "python": "3.14.4",
@@ -8,100 +8,100 @@
     "liboqs": "0.16.0",
     "qiskit": "2.6.2",
     "torch": "2.15.0+cpu",
-    "process_rss_mb": 738.6
+    "process_rss_mb": 801.0
   },
   "pqc_primitives": {
     "ml_dsa_65_sign": {
-      "mean_ms": 0.218,
-      "p95_ms": 0.459,
-      "ops_per_sec": 4587.3,
+      "mean_ms": 0.363,
+      "p95_ms": 0.882,
+      "ops_per_sec": 2757.8,
       "public_key_bytes": 1952,
       "signature_bytes": 3309
     },
     "ml_dsa_65_verify": {
-      "mean_ms": 0.098,
-      "p95_ms": 0.184,
-      "ops_per_sec": 10217.4
+      "mean_ms": 0.16,
+      "p95_ms": 0.187,
+      "ops_per_sec": 6250.8
     },
     "slh_dsa_128f_sign": {
-      "mean_ms": 41.985,
-      "p95_ms": 46.145,
-      "ops_per_sec": 23.8,
+      "mean_ms": 40.79,
+      "p95_ms": 59.964,
+      "ops_per_sec": 24.5,
       "public_key_bytes": 32,
       "signature_bytes": 17088
     },
     "slh_dsa_128f_verify": {
-      "mean_ms": 2.58,
-      "p95_ms": 3.142,
-      "ops_per_sec": 387.6
+      "mean_ms": 2.344,
+      "p95_ms": 2.533,
+      "ops_per_sec": 426.6
     },
     "ml_kem_768_encap_decap": {
       "mean_ms": 0.071,
-      "p95_ms": 0.108,
-      "ops_per_sec": 14109.9,
+      "p95_ms": 0.102,
+      "ops_per_sec": 14095.4,
       "public_key_bytes": 1184,
       "ciphertext_bytes": 1088
     }
   },
   "chameleon_tiers": {
     "STANDARD": {
-      "mean_ms": 0.282,
-      "p95_ms": 0.326,
-      "ops_per_sec": 3539.9,
+      "mean_ms": 0.272,
+      "p95_ms": 0.323,
+      "ops_per_sec": 3678.5,
       "envelope_json_bytes": 1960
     },
     "ELEVATED": {
-      "mean_ms": 0.512,
-      "p95_ms": 0.939,
-      "ops_per_sec": 1951.8,
+      "mean_ms": 0.433,
+      "p95_ms": 0.481,
+      "ops_per_sec": 2306.9,
       "envelope_json_bytes": 3435
     },
     "QUANTUM_CRITICAL": {
-      "mean_ms": 1.079,
-      "p95_ms": 1.726,
-      "ops_per_sec": 927.1,
+      "mean_ms": 1.096,
+      "p95_ms": 1.701,
+      "ops_per_sec": 912.1,
       "envelope_json_bytes": 10460
     }
   },
   "reality_stamp": {
     "e2e_stamp_mldsa65": {
-      "mean_ms": 5.313,
-      "p95_ms": 9.2,
-      "ops_per_sec": 188.2
+      "mean_ms": 4.671,
+      "p95_ms": 10.156,
+      "ops_per_sec": 214.1
     }
   },
   "qubit_compiler": {
     "pytorch_encode_4q": {
-      "mean_ms": 0.43,
-      "p95_ms": 0.822,
-      "ops_per_sec": 2323.7
+      "mean_ms": 0.374,
+      "p95_ms": 0.61,
+      "ops_per_sec": 2673.1
     },
     "onnxruntime_encode_4q": {
-      "mean_ms": 0.081,
-      "p95_ms": 0.109,
-      "ops_per_sec": 12306.1
+      "mean_ms": 0.07,
+      "p95_ms": 0.113,
+      "ops_per_sec": 14226.4
     },
     "qiskit_transpile_qasm3_4q": {
-      "mean_ms": 77.006,
-      "p95_ms": 129.301,
-      "ops_per_sec": 13.0
+      "mean_ms": 65.923,
+      "p95_ms": 110.047,
+      "ops_per_sec": 15.2
     }
   },
   "quantum_dreamer": {
     "qaoa_4q_statevector": {
-      "solve_time_ms": 5710.42,
+      "solve_time_ms": 4706.41,
       "optimal_energy": -6.0,
       "exact_ground_energy": -6.0,
       "approximation_ratio": 1.0
     },
     "qaoa_6q_statevector": {
-      "solve_time_ms": 6189.19,
+      "solve_time_ms": 5307.84,
       "optimal_energy": -8.5,
       "exact_ground_energy": -8.5,
       "approximation_ratio": 1.0
     },
     "qaoa_4q_noisy_aer": {
-      "solve_time_ms": 1360.82,
+      "solve_time_ms": 1319.76,
       "optimal_energy": -6.0,
       "exact_ground_energy": -6.0,
       "approximation_ratio": 1.0
@@ -109,9 +109,43 @@
   },
   "quantum_entropy": {
     "harvest_6q_512shots": {
-      "latency_ms": 65.29,
-      "shannon_entropy_bits": 3.8212,
+      "latency_ms": 62.28,
+      "shannon_entropy_bits": 3.9268,
       "pool_bytes": 256
+    }
+  },
+  "v02_v03_platform": {
+    "pkcs11_softhsm2_seal": {
+      "mean_ms": 5.245,
+      "p95_ms": 7.118,
+      "ops_per_sec": 190.7
+    },
+    "pkcs11_softhsm2_unseal": {
+      "mean_ms": 5.827,
+      "p95_ms": 8.799,
+      "ops_per_sec": 171.6
+    },
+    "curvezmq_authenticated_bus": {
+      "messages": 200.0,
+      "total_ms": 89.97,
+      "mean_ms_per_msg": 0.45,
+      "throughput_msgs_per_sec": 2223.0
+    },
+    "merkle_gossip_3node": {
+      "nodes": 3.0,
+      "convergence_ms": 17.68
+    },
+    "error_mitigation_noisy_aer": {
+      "exact_statevector_energy": -0.4831,
+      "unmitigated_energy": -1.5879,
+      "unmitigated_abs_error": 1.1048,
+      "trex_energy": -0.7986,
+      "trex_abs_error": 0.3155,
+      "zne_energy": -1.4114,
+      "zne_abs_error": 0.9283,
+      "zne_trex_energy": -0.5652,
+      "zne_trex_abs_error": 0.0821,
+      "error_reduction_pct": 92.6
     }
   }
 }

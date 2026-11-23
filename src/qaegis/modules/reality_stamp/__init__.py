@@ -1,7 +1,13 @@
-"""Module 1: Proof of Reality (Edge-AI + QRNG + NIST PQC Signatures + Merkle Log)."""
+"""Module 1: Proof of Reality (Edge-AI + QRNG + NIST PQC Signatures + Merkle Log + Gossip)."""
 
 from __future__ import annotations
 
+from qaegis.modules.reality_stamp.gossip import (
+    EquivocationAlert,
+    GossipVerificationOutcome,
+    MerkleGossipEnvelope,
+    MerkleGossipNode,
+)
 from qaegis.modules.reality_stamp.merkle import (
     MerkleProof,
     MerkleProofStep,
@@ -43,8 +49,12 @@ __all__ = [
     "EntropyHealthError",
     "EntropyHealthReport",
     "EntropySource",
+    "EquivocationAlert",
+    "GossipVerificationOutcome",
     "HarvestedEntropy",
     "HttpQrngSource",
+    "MerkleGossipEnvelope",
+    "MerkleGossipNode",
     "MerkleProof",
     "MerkleProofStep",
     "MerkleTree",

@@ -27,7 +27,7 @@ from qaegis.core.hardware_seal import (
     TPM2Sealer,
     detect_pkcs11_library,
 )
-from qaegis.core.identity import IdentityManager
+from qaegis.core.identity import IdentityManager, PublicIdentityBundle
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
@@ -45,6 +45,7 @@ from qaegis.modules.qubit_compiler.circuit_builder import (
 )
 from qaegis.modules.qubit_compiler.qubo_mapper import build_maxcut_qubo
 from qaegis.modules.qubit_compiler.service import QubitCompilerService
+from qaegis.modules.reality_stamp.gossip import MerkleGossipEnvelope, MerkleGossipNode
 from qaegis.modules.reality_stamp.service import RealityStampService
 from qaegis.modules.reality_stamp.signer import RealityStamp, verify_reality_stamp
 
@@ -53,6 +54,12 @@ app = typer.Typer(
     help="Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform CLI.",
     no_args_is_help=True,
 )
+gossip_app = typer.Typer(
+    name="gossip",
+    help="Distributed multi-node Merkle root gossip inspection and peer verification.",
+    no_args_is_help=True,
+)
+app.add_typer(gossip_app, name="gossip")
 console = Console()
 
 
@@ -397,11 +404,23 @@ def dream_cmd(
             help="Backend: aer_statevector, aer_noisy, ibm_runtime, aws_braket, or ionq.",
         ),
     ] = "aer_statevector",
+    mitigation: Annotated[
+        str,
+        typer.Option(
+            "--mitigation",
+            help="Quantum error mitigation pipeline: none, zne, trex, or both.",
+        ),
+    ] = "none",
 ) -> None:
     """Trigger a Night-Mode Quantum Dreaming QAOA cycle and display optimal solution metrics."""
     cfg = load_config(
         config_file,
-        overrides={"quantum_dreamer": {"backend_type": backend}},
+        overrides={
+            "quantum_dreamer": {
+                "backend_type": backend,
+                "mitigation_mode": mitigation,
+            }
+        },
     )
     cfg.ensure_directories()
 
@@ -578,3 +597,84 @@ def run_cmd(
             metrics.stop_http_exporter()
 
     asyncio.run(_serve())
+
+
+@gossip_app.command("status")
+def gossip_status_cmd(
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Display persisted verified peer Merkle root checkpoints witnessed by this node."""
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+
+    async def _fetch() -> list[dict[str, object]]:
+        storage = StorageEngine(cfg.db_path)
+        await storage.initialize()
+        try:
+            return await storage.list_gossip_checkpoints()
+        finally:
+            await storage.close()
+
+    rows = asyncio.run(_fetch())
+    table = Table(title=f"Q-Aegis Merkle Gossip Checkpoints ({len(rows)} total)")
+    table.add_column("Peer Node", style="cyan")
+    table.add_column("Tree Size", style="magenta")
+    table.add_column("Merkle Root", style="green")
+    table.add_column("Status", style="yellow")
+    for r in rows[:20]:
+        table.add_row(
+            str(r["peer_node_id"]),
+            str(r["tree_size"]),
+            str(r["merkle_root"])[:20] + "...",
+            str(r["status"]),
+        )
+    console.print(table)
+
+
+@gossip_app.command("verify-peer")
+def gossip_verify_peer_cmd(
+    checkpoint_file: Annotated[Path, typer.Argument(help="Signed MerkleGossipEnvelope JSON file.")],
+    peer_public_file: Annotated[
+        Path,
+        typer.Argument(help="Peer's trusted PublicIdentityBundle JSON file."),
+    ],
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Verify a peer's ML-DSA-65 signed Merkle checkpoint and check for split-view equivocation."""
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    envelope = MerkleGossipEnvelope.model_validate(orjson.loads(checkpoint_file.read_bytes()))
+    peer_bundle = PublicIdentityBundle.model_validate(orjson.loads(peer_public_file.read_bytes()))
+
+    async def _verify() -> tuple[bool, str]:
+        bus = EventBus(config=cfg.bus)
+        storage = StorageEngine(cfg.db_path)
+        identity = IdentityManager(cfg.keys_dir, cfg.node_id, cfg.identity).load_or_create()
+        await bus.start()
+        await storage.initialize()
+        try:
+            node = MerkleGossipNode(
+                identity=identity,
+                storage=storage,
+                bus=bus,
+                trusted_peers={peer_bundle.node_id: peer_bundle},
+            )
+            outcome = await node.ingest_checkpoint(envelope, rebroadcast=False)
+            return outcome.accepted, outcome.reason
+        finally:
+            await storage.close()
+            await bus.stop()
+
+    accepted, reason = asyncio.run(_verify())
+    color = "green" if accepted else "red"
+    console.print(
+        f"[{color}]Peer checkpoint verification: accepted={accepted} ({reason})[/{color}]"
+    )
+    if not accepted:
+        raise typer.Exit(code=1)

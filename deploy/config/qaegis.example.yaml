@@ -12,6 +12,13 @@ bus:
   transport: "inproc"
   zmq_pub_endpoint: "ipc:///run/qaegis/bus-pub.ipc"
   zmq_sub_endpoint: "ipc:///run/qaegis/bus-pub.ipc"
+  zmq_bind_pub: true
+  zmq_connect_sub: true
+  # Set zmq_security to "curve" for Curve25519 encryption & ZAP peer allowlist authentication
+  zmq_security: "none" # none | curve
+  zmq_curve_key_dir: "/var/lib/qaegis/keys/curve"
+  zmq_allowed_peer_keys: []
+  zmq_server_public_key: null
   max_queue_size: 2048
   backpressure_policy: "block" # block | drop_oldest | reject
   request_timeout_s: 10.0
@@ -21,6 +28,13 @@ identity:
   fallback_sig_alg: "SLH-DSA-SHA2-128f"  # NIST FIPS 205 (stateless hash-based backup)
   kem_alg: "ML-KEM-768"                  # NIST FIPS 203
   rotation_interval_hours: 720
+  # Hardware sealing backend for secret keys: none | pkcs11 | tpm2
+  hardware_seal_backend: "none"
+  pkcs11_library: null
+  pkcs11_token_label: "qaegis"
+  pkcs11_key_label: "qaegis-pqc-kek"
+  tpm2_device: "/dev/tpmrm0"
+  tpm2_pcr_spec: "sha256:0,7"
 
 lifecycle:
   default_mode: "DAY"                    # DAY | NIGHT
@@ -61,14 +75,22 @@ qubit_compiler:
   optimization_level: 2
 
 quantum_dreamer:
-  # Backends: aer_statevector | aer_noisy | ibm_runtime (requires IBM_QUANTUM_TOKEN env var)
+  # Backends: aer_statevector | aer_noisy | ibm_runtime | aws_braket | ionq
   backend_type: "aer_statevector"
   ibm_backend_name: "ibm_brisbane"
   ibm_channel: "ibm_quantum"
+  braket_device_arn: null
+  ionq_target: "simulator"
+  ionq_api_url: "https://api.ionq.co/v0.3/jobs"
   qaoa_reps: 2
   qaoa_shots: 1024
   max_optimizer_iters: 60
   min_policy_improvement: 0.01
+  # Quantum Error Mitigation: none | zne | trex | both
+  mitigation_mode: "none"
+  zne_scale_factors: [1, 3, 5]
+  zne_extrapolation: "richardson" # linear | richardson | exponential
+  max_qpu_seconds_per_night: 300.0
 
 quantum_entropy:
   harvester_qubits: 6
