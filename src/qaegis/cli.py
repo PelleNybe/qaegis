@@ -18,10 +18,13 @@ from rich.console import Console
 from rich.table import Table
 
 from qaegis import __version__
+from qaegis.core.bus import EventBus
 from qaegis.core.config import load_config
 from qaegis.core.identity import IdentityManager
 from qaegis.core.storage import StorageEngine
-from qaegis.core.telemetry import configure_logging
+from qaegis.core.telemetry import QAegisMetrics, configure_logging
+from qaegis.modules.reality_stamp.service import RealityStampService
+from qaegis.modules.reality_stamp.signer import RealityStamp, verify_reality_stamp
 
 app = typer.Typer(
     name="qaegis",
@@ -152,4 +155,94 @@ def doctor_cmd(
     table.add_row("Audit Hash Chain Valid", f"{audit_ok} ({audit_count} records)")
     console.print(table)
     if not audit_ok:
+        raise typer.Exit(code=1)
+
+
+@app.command("stamp")
+def stamp_cmd(
+    sensor_id: Annotated[str, typer.Option("--sensor", "-s", help="Sensor identifier.")],
+    label: Annotated[str, typer.Option("--label", "-l", help="Edge-AI perception label.")],
+    confidence: Annotated[float, typer.Option("--confidence", help="Inference confidence [0,1].")],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output JSON file for the stamp.")],
+    stateless: Annotated[
+        bool,
+        typer.Option("--stateless", help="Use NIST FIPS 205 SLH-DSA instead of ML-DSA-65."),
+    ] = False,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Create a quantum-seeded, PQC-signed, Merkle-anchored Proof-of-Reality stamp."""
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+
+    async def _run() -> RealityStamp:
+        metrics = QAegisMetrics()
+        bus = EventBus(config=cfg.bus, metrics=metrics)
+        storage = StorageEngine(cfg.db_path)
+        mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+        identity = mgr.load_or_create()
+        await bus.start()
+        await storage.initialize()
+        svc = RealityStampService(
+            bus=bus,
+            identity=identity,
+            storage=storage,
+            config=cfg.reality_stamp,
+            metrics=metrics,
+        )
+        await svc.start()
+        try:
+            return await svc.stamp_perception(
+                sensor_id=sensor_id,
+                perception_label=label,
+                confidence=confidence,
+                use_stateless_hash_sig=stateless,
+            )
+        finally:
+            await svc.stop()
+            await storage.close()
+            await bus.stop()
+
+    stamp = asyncio.run(_run())
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(
+        orjson.dumps(
+            stamp.model_dump(mode="json"), option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS
+        )
+    )
+    console.print(
+        f"[green]Stamp {stamp.payload.stamp_id} signed with {stamp.algorithm} "
+        f"and written to {output}[/green]"
+    )
+
+
+@app.command("verify-stamp")
+def verify_stamp_cmd(
+    stamp_file: Annotated[Path, typer.Argument(help="Path to a RealityStamp JSON file.")],
+    expected_fingerprint: Annotated[
+        str | None,
+        typer.Option("--fingerprint", help="Optional expected SHA3-256 public key fingerprint."),
+    ] = None,
+) -> None:
+    """Offline cryptographic verifier for a Proof-of-Reality stamp and Merkle inclusion proof."""
+    if not stamp_file.is_file():
+        console.print(f"[red]Stamp file not found: {stamp_file}[/red]")
+        raise typer.Exit(code=2)
+
+    stamp = RealityStamp.model_validate(orjson.loads(stamp_file.read_bytes()))
+    result = verify_reality_stamp(stamp, expected_public_key_fingerprint=expected_fingerprint)
+
+    table = Table(title=f"Reality Stamp Verification ({result.stamp_id})")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="green" if result.valid else "red")
+    table.add_row("Overall Valid", str(result.valid))
+    table.add_row("Algorithm", result.algorithm)
+    table.add_row("Payload SHA-256", str(result.payload_hash_ok))
+    table.add_row("Key Fingerprint", str(result.fingerprint_ok))
+    table.add_row("PQC Signature", str(result.signature_ok))
+    table.add_row("Merkle Inclusion Proof", str(result.merkle_proof_ok))
+    console.print(table)
+    if not result.valid:
         raise typer.Exit(code=1)
