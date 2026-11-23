@@ -1,0 +1,201 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qaegis"
+version = "0.1.0"
+description = "Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [
+    { name = "Q-Aegis Contributors" },
+]
+keywords = [
+    "post-quantum-cryptography",
+    "quantum-computing",
+    "edge-ai",
+    "ml-kem",
+    "ml-dsa",
+    "slh-dsa",
+    "qaoa",
+    "qrng",
+    "qiskit",
+    "pennylane",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
+dependencies = [
+    "aiosqlite>=0.20.0",
+    "cryptography>=43.0.0",
+    "httpx>=0.27.0",
+    "liboqs-python>=0.12.0",
+    "numpy>=1.26.0",
+    "onnx>=1.16.0",
+    "onnxruntime>=1.18.0",
+    "openqasm3>=1.0.0",
+    "orjson>=3.10.0",
+    "paho-mqtt>=2.1.0",
+    "pennylane>=0.38.0",
+    "prometheus-client>=0.20.0",
+    "psutil>=6.0.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "PyYAML>=6.0.1",
+    "pyzmq>=26.0.0",
+    "qiskit>=1.2.0",
+    "qiskit-aer>=0.15.0",
+    "qiskit-ibm-runtime>=0.30.0",
+    "qiskit-qasm3-import>=0.5.0",
+    "rich>=13.7.0",
+    "scikit-learn>=1.5.0",
+    "scipy>=1.13.0",
+    "structlog>=24.1.0",
+    "torch>=2.4.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11.0",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.6.0",
+]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings>=0.26.0",
+    "mkdocstrings-python>=1.11.0",
+]
+
+[project.scripts]
+qaegis = "qaegis.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/PelleNybe/qaegis"
+Repository = "https://github.com/PelleNybe/qaegis"
+Issues = "https://github.com/PelleNybe/qaegis/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qaegis = ["py.typed"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests", "benchmarks"]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+    "SIM",
+    "RUF",
+    "S",
+    "ASYNC",
+]
+ignore = [
+    "S101",  # assert allowed in runtime invariants/tests
+    "S311",  # standard pseudo-random permitted where explicitly non-cryptographic (e.g. ML splits)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S105", "S106", "S108"]
+"benchmarks/**/*.py" = ["S105", "S106", "S108"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+namespace_packages = true
+explicit_package_bases = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = [
+    "oqs",
+    "oqs.*",
+    "qiskit",
+    "qiskit.*",
+    "qiskit_aer",
+    "qiskit_aer.*",
+    "qiskit_ibm_runtime",
+    "qiskit_ibm_runtime.*",
+    "pennylane",
+    "pennylane.*",
+    "sklearn",
+    "sklearn.*",
+    "scipy",
+    "scipy.*",
+    "onnx",
+    "onnx.*",
+    "onnxruntime",
+    "onnxruntime.*",
+    "paho",
+    "paho.*",
+    "zmq",
+    "zmq.*",
+    "rclpy",
+    "rclpy.*",
+    "std_msgs",
+    "std_msgs.*",
+    "yaml",
+    "yaml.*",
+    "prometheus_client",
+    "prometheus_client.*",
+    "psutil",
+    "psutil.*",
+    "torch",
+    "torch.*",
+    "openqasm3",
+    "openqasm3.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast unit tests",
+    "integration: cross-module integration tests",
+    "crypto: post-quantum cryptographic tests",
+    "quantum: quantum circuit and QAOA execution tests",
+]
+
+[tool.coverage.run]
+source = ["src/qaegis"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

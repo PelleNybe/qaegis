@@ -1,0 +1,40 @@
+name: Docker Multi-Arch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/docker/**"
+      - "pyproject.toml"
+      - "src/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "deploy/docker/**"
+      - "pyproject.toml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-multiarch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build linux/amd64 and linux/arm64 images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

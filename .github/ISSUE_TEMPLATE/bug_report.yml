@@ -1,0 +1,27 @@
+name: Bug Report
+description: Report a bug in Q-Aegis
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `qaegis ...`
+        2. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Output of `qaegis version` and `qaegis doctor`.
+    validations:
+      required: true
