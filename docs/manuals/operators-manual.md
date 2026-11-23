@@ -39,18 +39,29 @@ The shipped unit enforces `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `Prot
 ## 2. Managing PQC Key Lifecycle & Rotation
 
 - **Initial Key Generation:** `qaegis init-identity --config /etc/qaegis/qaegis.yaml` creates `device_identity.secret.json` (`0o600`) and `device_identity.public.json` (`0o644`).
-- **Scheduled Rotation:** Rotate keys cleanly without losing prior public key history:
+- **Zero-Downtime Key Rotation (`qaegis rotate-keys`):** Rotate ML-DSA-65, SLH-DSA, ML-KEM-768, and X25519 keys cleanly while keeping all pre-rotation Reality Stamps verifiable via the versioned trust keyring (`keys/keyring.json`, `0o600`):
 
   ```bash
-  sudo -u qaegis /opt/qaegis/.venv/bin/qaegis init-identity --rotate --config /etc/qaegis/qaegis.yaml
+  sudo -u qaegis /opt/qaegis/.venv/bin/qaegis rotate-keys --config /etc/qaegis/qaegis.yaml
+
+  # Optional: rotate and immediately hardware-seal into PKCS#11 HSM / TPM 2.0
+  sudo -u qaegis /opt/qaegis/.venv/bin/qaegis rotate-keys --seal-backend pkcs11 --token-label qaegis --config /etc/qaegis/qaegis.yaml
+
+  # Offline verification against the full historical keyring (verifies v1, v2, ... stamps)
+  qaegis verify-stamp stamp_v1.json --keyring /var/lib/qaegis/keys/keyring.json
   ```
 
-  Previous public bundles are archived automatically under `keys/archived_<UTC>.public.json` so downstream verifiers can continue validating historical Reality Stamps.
-
-- **Compliance Auditing (CBOM):**
+- **Compliance Auditing (Native JSON & CycloneDX 1.6 CBOM):**
 
   ```bash
-  qaegis cbom --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.json
+  qaegis cbom --format json --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.json
+  qaegis cbom --format cyclonedx --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.cdx.json
+  ```
+
+- **Interactive Live Diagnostics Demo:**
+
+  ```bash
+  qaegis demo
   ```
 
 - **Hardware Sealing (PKCS#11 HSM / SoftHSM2 or Linux TPM 2.0):**
@@ -111,6 +122,14 @@ When `telemetry.enabled: true`, Q-Aegis exposes Prometheus metrics at `http://12
 | `qaegis_bus_auth_rejections_total` | Counter | **Alert immediately** on unauthorized CurveZMQ peer ZAP handshake attempts. |
 | `qaegis_gossip_equivocation_total` | Counter | **Page immediately** — indicates a peer signed conflicting Merkle roots for the same tree size (split-view attack). |
 | `qaegis_mitigation_runs_total` | Counter | Track Night-Mode ZNE/TREX error mitigation invocation counts. |
+| `qaegis_identity_key_rotations_total` | Counter | Track completed zero-downtime PQC key rotations per node. |
+
+### Ready-to-Import Grafana Dashboard & Prometheus Alerts
+
+Q-Aegis ships production observability templates under `deploy/`:
+
+- **Grafana v10+ Dashboard:** Import `deploy/grafana/qaegis-dashboard.json` and bind `${DS_PROMETHEUS}` to your Prometheus data source.
+- **Prometheus Alerting Rules:** Load `deploy/prometheus/alerts.yml` into your Prometheus `rule_files` configuration (`QAegisGossipEquivocationDetected`, `QAegisQRNGHealthFailure`, `QAegisCurveZMQAuthSpike`, `QAegisPolicyRollbackTriggered`, and `QAegisHighPqcSigningLatency`).
 
 ---
 

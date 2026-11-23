@@ -5,6 +5,14 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-24
+
+### Added
+- **Zero-Downtime PQC Key Rotation (`qaegis.core.identity`):** Versioned `TrustKeyring` (`keyring.json`, `0o600`), `IdentityManager.rotate_keys()` with in-memory secret zeroization and optional PKCS#11/TPM2 sealing, automatic historical key resolution in `verify_reality_stamp(..., keyring=...)`, `qaegis rotate-keys` CLI, `qaegis verify-stamp --keyring`, and `qaegis_identity_key_rotations_total` Prometheus metric.
+- **Interactive Zero-Friction Demo (`qaegis demo`):** Rich-powered live 5-subsystem pipeline (`src/qaegis/demo.py`) executing real NIST PQC, QRNG + Merkle stamping, Chameleon firewall escalation, ONNX AI-to-Qubit OpenQASM 3.0 compilation, and noisy QAOA with ZNE+TREX error mitigation (`--fast` mode for CI).
+- **CycloneDX 1.6 CBOM Export:** `qaegis cbom --format cyclonedx` emitting standards-compliant CycloneDX 1.6 Cryptographic Bill of Materials with NIST OIDs and quantum security levels.
+- **Production Observability & CI Hardening:** Ready-to-import Grafana v10+ dashboard (`deploy/grafana/qaegis-dashboard.json`), Prometheus alerting rules (`deploy/prometheus/alerts.yml`), CI Bandit (`ruff --select S`), wheel/sdist build verification (`python -m build`), and `>= 90%` test coverage enforcement.
+
 ## [0.3.0] - 2026-11-23
 
 ### Added

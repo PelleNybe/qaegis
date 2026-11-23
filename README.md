@@ -1,14 +1,36 @@
 # Q-Aegis
 
-**Quantum-Secured Autonomous Edge-AI Platform (v0.3.0)**
+**Quantum-Secured Autonomous Edge-AI Platform (v0.4.0)**
 
-[![CI](https://img.shields.io/github/actions/workflow/status/PelleNybe/qaegis/ci.yml?label=CI&logo=github)](https://github.com/PelleNybe/qaegis/actions/workflows/status/PelleNybe/qaegis/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/PelleNybe/qaegis/ci.yml?label=CI&logo=github)](https://github.com/PelleNybe/qaegis/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/Docs-GitHub_Pages-0EA5E9?logo=materialformkdocs&logoColor=white)](https://pellenybe.github.io/qaegis/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![NIST PQC](https://img.shields.io/badge/NIST_PQC-FIPS_203_%7C_204_%7C_205-0F766E)](docs/cryptography-threat-model.md)
 [![Hardware Security](https://img.shields.io/badge/HSM_%7C_TPM_2.0-PKCS%2311_%7C_CurveZMQ-15803D)](docs/manuals/operators-manual.md)
 [![Quantum](https://img.shields.io/badge/Quantum-IBM_%7C_Braket_%7C_IonQ_%7C_ZNE%2FTREX-6929C4)](docs/quantum-backends.md)
 [![Typing: mypy --strict](https://img.shields.io/badge/Typing-mypy_--strict-2A6DB2)](pyproject.toml)
+
+---
+
+## Try the 10-Second Live Demo (`qaegis demo`)
+
+Experience all five Q-Aegis subsystems executing **100% real cryptography, ONNX Runtime, QAOA, and ZNE+TREX error mitigation** locally with zero cloud API keys:
+
+```bash
+pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+pip install --no-cache-dir -e .
+qaegis demo
+```
+
+`qaegis demo` executes a live 5-stage pipeline in an isolated workspace:
+1. Generates **NIST FIPS 203 / 204 / 205** device keys (`ML-KEM-768`, `ML-DSA-65`, `SLH-DSA-SHA2-128f`).
+2. Harvests **QRNG** entropy, validates **NIST SP 800-22/90B**, signs a perception frame, and verifies its **Merkle inclusion proof**.
+3. Escalates **Quantum Chameleon** live across `STANDARD` → `ELEVATED` (Hybrid ML-KEM-768) → `QUANTUM_CRITICAL` (Hybrid + ML-DSA-65).
+4. Compresses a 16-D sensor vector via **ONNX Runtime** into bounded $[-\pi, \pi]$ angles and emits **OpenQASM 3.0**.
+5. Solves a 4-qubit Max-Cut **QAOA** problem with **ZNE + TREX** error mitigation on noisy `AerSimulator` and prints real measured error reduction.
+
+*(Use `qaegis demo --fast` for ~3-second CI smoke tests.)*
 
 ---
 
@@ -174,6 +196,7 @@ Measured locally via `.venv/bin/python benchmarks/run_benchmarks.py` ([benchmark
 - [x] **v0.1.0:** Core microkernel, all five subsystems, `liboqs` FIPS 203/204/205, Qiskit/PennyLane/OpenQASM 3.0, ONNX export, MQTT & ROS 2 adapters, Docker multi-arch, systemd hardening.
 - [x] **v0.2.0:** Hardware PKCS#11 (HSM/SoftHSM2) & Linux TPM 2.0 key sealing, AWS Braket & IonQ Cloud API v0.3 backend plugins, and CurveZMQ authenticated Event Bus with ZAP allowlist metrics.
 - [x] **v0.3.0:** Distributed multi-node ML-DSA-65 Merkle root gossiping with equivocation detection, federated Night-Mode QAOA fleet scheduling with isomorphism deduplication & budget enforcement, and Qiskit ZNE + TREX error mitigation pipelines.
+- [x] **v0.4.0:** Zero-downtime PQC key rotation with historical `keyring.json` verification (`qaegis rotate-keys`), interactive `qaegis demo` live showcase, CycloneDX 1.6 CBOM export (`qaegis cbom --format cyclonedx`), Grafana v10+ dashboard & Prometheus alert rules, >=90% branch+statement coverage gate, and automated wheel/sdist build verification.
 
 ---
 
@@ -186,7 +209,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md]
   title        = {Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform},
   author       = {{Q-Aegis Contributors}},
   year         = {2026},
-  version      = {0.3.0},
+  version      = {0.4.0},
   license      = {Apache-2.0},
   url          = {https://github.com/PelleNybe/qaegis}
 }
