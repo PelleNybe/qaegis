@@ -17,6 +17,7 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.reality_stamp.qrng
 ::: qaegis.modules.reality_stamp.signer
 ::: qaegis.modules.reality_stamp.merkle
+::: qaegis.modules.reality_stamp.gossip
 
 ## Module 2: Quantum Chameleon
 
@@ -35,6 +36,8 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.quantum_dreamer.solvers
 ::: qaegis.modules.quantum_dreamer.backends.braket_backend
 ::: qaegis.modules.quantum_dreamer.backends.ionq_backend
+::: qaegis.modules.quantum_dreamer.federated
+::: qaegis.modules.quantum_dreamer.mitigation
 ::: qaegis.modules.quantum_dreamer.policy_updater
 
 ## Module 5: Quantum Entropy Engine

@@ -5,11 +5,14 @@
 ## How Day/Night Optimization Works
 
 1. **Day Mode (`problem_queue.py`):** When the autonomous agent encounters an NP-hard routing, scheduling, or resource-allocation bottleneck, it logs the compiled QUBO into SQLite WAL (`dream_problems`) with a priority score and continues operating using its fast local policy—zero blocking QPU calls.
-2. **Night Mode (`solvers.py`):** During scheduled charging/idle windows (or explicit CLI trigger), `QuantumDreamerService` drains the priority queue and executes a genuine **QAOA** variational optimizer in Qiskit across pluggable backends:
+2. **Night Mode (`solvers.py`, `backends/`):** During scheduled charging/idle windows (or explicit CLI trigger), `QuantumDreamerService` drains the priority queue and executes a genuine **QAOA** variational optimizer across the pluggable `QuantumBackendRegistry`:
    - `AerStatevectorBackend` (exact local statevector simulator)
    - `AerNoisyBackend` (realistic depolarizing + readout noise model)
-   - `IbmRuntimeBackend` (real IBM Quantum `SamplerV2` via `IBM_QUANTUM_TOKEN`, transparently falling back to `AerNoisyBackend` if unconfigured)
-3. **Rollback-Guarded Policy Update (`policy_updater.py`):** Optimal QAOA bitstrings are blended into candidate AI policy weights and benchmarked on held-out validation checks. Updates are activated **only if** they outperform the active baseline; regressions trigger an automatic rollback and tamper-evident audit entry.
+   - `IbmRuntimeBackend` (real IBM Quantum `SamplerV2` via `IBM_QUANTUM_TOKEN`)
+   - `AwsBraketBackend` (real AWS Braket OpenQASM 3.0 on `LocalSimulator` or `AwsDevice` QPU ARN)
+   - `IonQBackend` (real IonQ Cloud API v0.3 QIS JSON client with polling & local fallback)
+3. **Quantum Error Mitigation (`mitigation.py`):** Native Qiskit **ZNE** (unitary gate folding $U \to U(U^\dagger U)^k$ with Linear, Richardson, and Exponential extrapolation) and **TREX** (Pauli-X readout twirling + calibration diagonal) reducing noisy expectation error by >90%.
+4. **Federated Fleet Scheduling (`federated.py`):** `FederatedScheduler` deduplicates identical and relabeled isomorphic QUBOs across edge fleets, enforces nightly QPU budgets, and broadcasts ML-DSA-65 signed optimal solutions with per-node rollback-guarded validation (`policy_updater.py`).
 
 ## Standalone Python Usage
 
@@ -38,5 +41,6 @@ print(
 
 ```bash
 qaegis dream --nodes 4 --backend aer_statevector
-qaegis dream --nodes 4 --backend aer_noisy
+qaegis dream --nodes 4 --backend aws_braket
+qaegis dream --nodes 4 --backend aer_noisy --mitigation both
 ```

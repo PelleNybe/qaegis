@@ -53,6 +53,24 @@ The shipped unit enforces `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `Prot
   qaegis cbom --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.json
   ```
 
+- **Hardware Sealing (PKCS#11 HSM / SoftHSM2 or Linux TPM 2.0):**
+
+  ```bash
+  # Seal PQC private keys using a non-extractable AES-256 KEK inside PKCS#11 HSM/SoftHSM2
+  qaegis seal-identity --backend pkcs11 --token-label qaegis --pin "$QAEGIS_PKCS11_PIN" --config /etc/qaegis/qaegis.yaml
+
+  # Or seal against Linux TPM 2.0 PCR bank (sha256:0,7) on /dev/tpmrm0
+  qaegis seal-identity --backend tpm2 --pcr-spec sha256:0,7 --config /etc/qaegis/qaegis.yaml
+  ```
+
+- **CurveZMQ Peer Allowlists & Merkle Gossip Verification:**
+  Set `bus.transport: zmq` and `bus.zmq_security: curve` in `qaegis.yaml`, listing authorized peer Z85 Curve25519 public keys in `bus.zmq_allowed_peer_keys`. Inspect witnessed fleet checkpoints and verify external peer roots offline with:
+
+  ```bash
+  qaegis gossip status --config /etc/qaegis/qaegis.yaml
+  qaegis gossip verify-peer peer_checkpoint.json peer_identity.public.json --config /etc/qaegis/qaegis.yaml
+  ```
+
 ---
 
 ## 3. Configuring Night-Mode QPU Credentials
@@ -90,6 +108,9 @@ When `telemetry.enabled: true`, Q-Aegis exposes Prometheus metrics at `http://12
 | `qaegis_dreamer_policy_updates_total{outcome="rolled_back"}` | Counter | Investigate if repeated Night-Mode rollbacks occur across consecutive cycles. |
 | `qaegis_crypto_operation_duration_seconds` | Histogram | Alert if p95 ML-DSA-65 signing latency exceeds 10 ms on target edge hardware. |
 | `qaegis_lifecycle_mode` | Gauge | Verify expected schedule transitions (`0=DAY`, `1=NIGHT`). |
+| `qaegis_bus_auth_rejections_total` | Counter | **Alert immediately** on unauthorized CurveZMQ peer ZAP handshake attempts. |
+| `qaegis_gossip_equivocation_total` | Counter | **Page immediately** — indicates a peer signed conflicting Merkle roots for the same tree size (split-view attack). |
+| `qaegis_mitigation_runs_total` | Counter | Track Night-Mode ZNE/TREX error mitigation invocation counts. |
 
 ---
 

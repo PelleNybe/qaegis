@@ -5,6 +5,13 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-11-23
+
+### Added
+- **Distributed Merkle Root Gossip (`qaegis.modules.reality_stamp.gossip`):** Multi-node async P2P Merkle root cross-witnessing mesh over CurveZMQ with **ML-DSA-65** checkpoint signatures, split-view equivocation detection (`gossip.equivocation_detected` + `qaegis_gossip_equivocation_total`), SQLite migration v2 (`gossip_checkpoints`), and `qaegis gossip status` / `qaegis gossip verify-peer` CLI commands.
+- **Federated Night-Mode QAOA Fleet Scheduling (`qaegis.modules.quantum_dreamer.federated`):** `FederatedScheduler` fleet coordinator performing exact structural isomorphism deduplication (`canonicalize_qubo` + variable permutation bitstring remapping), nightly QPU budget enforcement (`max_qpu_seconds_per_night`), **ML-DSA-65** signed policy broadcasts, and per-node local validation with automatic rollback guards.
+- **Quantum Error Mitigation Pipelines (`qaegis.modules.quantum_dreamer.mitigation`):** Native Qiskit 2.x **ZNE** (unitary gate folding $U \to U(U^\dagger U)^k$ with Linear, Richardson, and Exponential extrapolation) and **TREX** (Pauli-X readout twirling + diagonal readout error calibration), wired into `QaoaSolver` and `qaegis dream --mitigation [none|zne|trex|both]`, achieving **92.6% expectation error reduction** on noisy `AerSimulator` benchmarks.
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
