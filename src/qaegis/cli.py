@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import signal
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -24,17 +25,20 @@ from qaegis.core.identity import IdentityManager
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
+from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
 from qaegis.modules.quantum_dreamer.service import QuantumDreamerService
 from qaegis.modules.quantum_entropy.harvester import (
     QuantumDistributionBatch,
     QuantumDistributionHarvester,
 )
+from qaegis.modules.quantum_entropy.service import QuantumEntropyService
 from qaegis.modules.qubit_compiler.autoencoder import AngleEncoderPipeline
 from qaegis.modules.qubit_compiler.circuit_builder import (
     BackendNoiseProfile,
     NoiseAwareCircuitBuilder,
 )
 from qaegis.modules.qubit_compiler.qubo_mapper import build_maxcut_qubo
+from qaegis.modules.qubit_compiler.service import QubitCompilerService
 from qaegis.modules.reality_stamp.service import RealityStampService
 from qaegis.modules.reality_stamp.signer import RealityStamp, verify_reality_stamp
 
@@ -383,3 +387,107 @@ def entropy_cmd(
     table.add_row("Pool Bytes", str(batch.pool_bytes))
     table.add_row("Sources", ", ".join(batch.sources))
     console.print(table)
+
+
+@app.command("run")
+def run_cmd(
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+    max_ticks: Annotated[
+        int | None,
+        typer.Option(
+            "--max-ticks", help="Optional tick limit before clean shutdown (for testing)."
+        ),
+    ] = None,
+    tick_interval_s: Annotated[
+        float,
+        typer.Option("--tick-interval", help="Lifecycle evaluation interval in seconds."),
+    ] = 15.0,
+) -> None:
+    """Run the full Q-Aegis microkernel daemon with all five subsystems and Prometheus metrics."""
+    cfg = load_config(config_file)
+    configure_logging(cfg.telemetry)
+    cfg.ensure_directories()
+
+    async def _serve() -> None:
+        metrics = QAegisMetrics()
+        bus = EventBus(config=cfg.bus, metrics=metrics)
+        storage = StorageEngine(cfg.db_path)
+        lifecycle = LifecycleManager(bus=bus, config=cfg.lifecycle, metrics=metrics)
+        identity = IdentityManager(cfg.keys_dir, cfg.node_id, cfg.identity).load_or_create()
+
+        if cfg.telemetry.enabled:
+            host, port = metrics.start_http_exporter(
+                host=cfg.telemetry.metrics_host,
+                port=cfg.telemetry.metrics_port,
+            )
+            console.print(
+                f"[cyan]Prometheus metrics serving on http://{host}:{port}/metrics[/cyan]"
+            )
+
+        await bus.start()
+        await storage.initialize()
+        reality_svc = RealityStampService(
+            bus=bus,
+            identity=identity,
+            storage=storage,
+            config=cfg.reality_stamp,
+            metrics=metrics,
+        )
+        chameleon_svc = ChameleonFirewallService(
+            bus=bus,
+            identity=identity,
+            config=cfg.chameleon_fw,
+            metrics=metrics,
+        )
+        compiler_svc = QubitCompilerService(bus=bus, config=cfg.qubit_compiler)
+        dreamer_svc = QuantumDreamerService(
+            bus=bus,
+            storage=storage,
+            lifecycle=lifecycle,
+            config=cfg.quantum_dreamer,
+            metrics=metrics,
+        )
+        entropy_svc = QuantumEntropyService(
+            bus=bus,
+            config=cfg.quantum_entropy,
+            metrics=metrics,
+        )
+
+        await reality_svc.start()
+        await chameleon_svc.start()
+        await compiler_svc.start()
+        await dreamer_svc.start()
+        await entropy_svc.start()
+
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        if sys.platform != "win32":
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop_event.set)
+
+        console.print(
+            f"[green]Q-Aegis microkernel online "
+            f"(node={cfg.node_id}, mode={lifecycle.mode.value})[/green]"
+        )
+        ticks = 0
+        try:
+            while not stop_event.is_set():
+                await lifecycle.evaluate_auto_transition()
+                ticks += 1
+                if max_ticks is not None and ticks >= max_ticks:
+                    break
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=tick_interval_s)
+                except TimeoutError:
+                    continue
+        finally:
+            await lifecycle.shutdown()
+            await reality_svc.stop()
+            await storage.close()
+            await bus.stop()
+            metrics.stop_http_exporter()
+
+    asyncio.run(_serve())

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fnmatch
 import hashlib
 import uuid
@@ -300,11 +301,9 @@ class EventBus:
 
         if sub.queue.full():
             if policy == "drop_oldest":
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty):
                     sub.queue.get_nowait()
                     self._metrics.bus_events_dropped.labels(topic=envelope.topic).inc()
-                except asyncio.QueueEmpty:
-                    pass
                 sub.queue.put_nowait(envelope)
             else:  # reject
                 self._metrics.bus_events_dropped.labels(topic=envelope.topic).inc()

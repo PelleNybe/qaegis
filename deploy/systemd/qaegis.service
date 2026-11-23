@@ -1,0 +1,43 @@
+[Unit]
+Description=Q-Aegis Quantum-Secured Autonomous Edge-AI Platform
+Documentation=https://github.com/PelleNybe/qaegis
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qaegis
+Group=qaegis
+WorkingDirectory=/var/lib/qaegis
+Environment=QAEGIS_CONFIG=/etc/qaegis/qaegis.yaml
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/opt/qaegis/.venv/bin/qaegis init-identity --config /etc/qaegis/qaegis.yaml
+ExecStart=/opt/qaegis/.venv/bin/qaegis run --config /etc/qaegis/qaegis.yaml
+Restart=on-failure
+RestartSec=5s
+
+# Security Hardening & Capability Restrictions
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/qaegis/data /var/lib/qaegis/keys
+UMask=0077
+
+# Edge Resource Limits
+MemoryMax=2G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,117 @@
+{
+  "timestamp_utc": "2026-11-23T22:08:34.708657+00:00",
+  "environment": {
+    "platform": "Linux x86_64",
+    "python": "3.14.4",
+    "cpu_count_logical": 4,
+    "ram_total_gb": 15.0,
+    "liboqs": "0.16.0",
+    "qiskit": "2.6.2",
+    "torch": "2.15.0+cpu",
+    "process_rss_mb": 738.6
+  },
+  "pqc_primitives": {
+    "ml_dsa_65_sign": {
+      "mean_ms": 0.218,
+      "p95_ms": 0.459,
+      "ops_per_sec": 4587.3,
+      "public_key_bytes": 1952,
+      "signature_bytes": 3309
+    },
+    "ml_dsa_65_verify": {
+      "mean_ms": 0.098,
+      "p95_ms": 0.184,
+      "ops_per_sec": 10217.4
+    },
+    "slh_dsa_128f_sign": {
+      "mean_ms": 41.985,
+      "p95_ms": 46.145,
+      "ops_per_sec": 23.8,
+      "public_key_bytes": 32,
+      "signature_bytes": 17088
+    },
+    "slh_dsa_128f_verify": {
+      "mean_ms": 2.58,
+      "p95_ms": 3.142,
+      "ops_per_sec": 387.6
+    },
+    "ml_kem_768_encap_decap": {
+      "mean_ms": 0.071,
+      "p95_ms": 0.108,
+      "ops_per_sec": 14109.9,
+      "public_key_bytes": 1184,
+      "ciphertext_bytes": 1088
+    }
+  },
+  "chameleon_tiers": {
+    "STANDARD": {
+      "mean_ms": 0.282,
+      "p95_ms": 0.326,
+      "ops_per_sec": 3539.9,
+      "envelope_json_bytes": 1960
+    },
+    "ELEVATED": {
+      "mean_ms": 0.512,
+      "p95_ms": 0.939,
+      "ops_per_sec": 1951.8,
+      "envelope_json_bytes": 3435
+    },
+    "QUANTUM_CRITICAL": {
+      "mean_ms": 1.079,
+      "p95_ms": 1.726,
+      "ops_per_sec": 927.1,
+      "envelope_json_bytes": 10460
+    }
+  },
+  "reality_stamp": {
+    "e2e_stamp_mldsa65": {
+      "mean_ms": 5.313,
+      "p95_ms": 9.2,
+      "ops_per_sec": 188.2
+    }
+  },
+  "qubit_compiler": {
+    "pytorch_encode_4q": {
+      "mean_ms": 0.43,
+      "p95_ms": 0.822,
+      "ops_per_sec": 2323.7
+    },
+    "onnxruntime_encode_4q": {
+      "mean_ms": 0.081,
+      "p95_ms": 0.109,
+      "ops_per_sec": 12306.1
+    },
+    "qiskit_transpile_qasm3_4q": {
+      "mean_ms": 77.006,
+      "p95_ms": 129.301,
+      "ops_per_sec": 13.0
+    }
+  },
+  "quantum_dreamer": {
+    "qaoa_4q_statevector": {
+      "solve_time_ms": 5710.42,
+      "optimal_energy": -6.0,
+      "exact_ground_energy": -6.0,
+      "approximation_ratio": 1.0
+    },
+    "qaoa_6q_statevector": {
+      "solve_time_ms": 6189.19,
+      "optimal_energy": -8.5,
+      "exact_ground_energy": -8.5,
+      "approximation_ratio": 1.0
+    },
+    "qaoa_4q_noisy_aer": {
+      "solve_time_ms": 1360.82,
+      "optimal_energy": -6.0,
+      "exact_ground_energy": -6.0,
+      "approximation_ratio": 1.0
+    }
+  },
+  "quantum_entropy": {
+    "harvest_6q_512shots": {
+      "latency_ms": 65.29,
+      "shannon_entropy_bits": 3.8212,
+      "pool_bytes": 256
+    }
+  }
+}
