@@ -21,8 +21,20 @@ from qaegis import __version__
 from qaegis.core.bus import EventBus
 from qaegis.core.config import load_config
 from qaegis.core.identity import IdentityManager
+from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
+from qaegis.modules.quantum_dreamer.service import QuantumDreamerService
+from qaegis.modules.quantum_entropy.harvester import (
+    QuantumDistributionBatch,
+    QuantumDistributionHarvester,
+)
+from qaegis.modules.qubit_compiler.autoencoder import AngleEncoderPipeline
+from qaegis.modules.qubit_compiler.circuit_builder import (
+    BackendNoiseProfile,
+    NoiseAwareCircuitBuilder,
+)
+from qaegis.modules.qubit_compiler.qubo_mapper import build_maxcut_qubo
 from qaegis.modules.reality_stamp.service import RealityStampService
 from qaegis.modules.reality_stamp.signer import RealityStamp, verify_reality_stamp
 
@@ -246,3 +258,128 @@ def verify_stamp_cmd(
     console.print(table)
     if not result.valid:
         raise typer.Exit(code=1)
+
+
+@app.command("compile-circuit")
+def compile_circuit_cmd(
+    vector: Annotated[
+        str,
+        typer.Option("--vector", "-v", help="Comma-separated numeric sensor feature values."),
+    ] = "0.5,-0.2,0.8,0.1,0.4,-0.7,0.9,0.2",
+    qubits: Annotated[int, typer.Option("--qubits", "-q", help="Target qubit count.")] = 4,
+    output_qasm: Annotated[
+        Path | None,
+        typer.Option("--output-qasm", "-o", help="Optional path to save OpenQASM 3.0 output."),
+    ] = None,
+) -> None:
+    """Compile a numeric edge sensor vector into bounded qubit angles and OpenQASM 3.0."""
+    values = [float(item.strip()) for item in vector.split(",") if item.strip()]
+    pipeline = AngleEncoderPipeline(input_dim=len(values), num_qubits=qubits)
+    angles = pipeline.encode_to_angles(values)
+    builder = NoiseAwareCircuitBuilder(BackendNoiseProfile())
+    _qc, artifact = builder.build_qiskit_circuit(angles)
+
+    table = Table(title="AI-to-Qubit Compiled Circuit")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Input Dimensions", str(len(values)))
+    table.add_row("Qubits", str(artifact.num_qubits))
+    table.add_row("Transpiled Depth", str(artifact.depth))
+    table.add_row("2-Qubit Gates (CX)", str(artifact.two_qubit_gate_count))
+    table.add_row("Estimated Fidelity", f"{artifact.estimated_fidelity:.4f}")
+    table.add_row("Entanglement Pattern", artifact.entanglement_pattern)
+    console.print(table)
+
+    if output_qasm is not None:
+        output_qasm.write_text(artifact.openqasm3, encoding="utf-8")
+        console.print(f"[green]OpenQASM 3.0 written to {output_qasm}[/green]")
+
+
+@app.command("dream")
+def dream_cmd(
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+    nodes: Annotated[int, typer.Option("--nodes", help="Demo Max-Cut graph node count.")] = 4,
+    backend: Annotated[
+        str,
+        typer.Option("--backend", help="Backend: aer_statevector, aer_noisy, or ibm_runtime."),
+    ] = "aer_statevector",
+) -> None:
+    """Trigger a Night-Mode Quantum Dreaming QAOA cycle and display optimal solution metrics."""
+    cfg = load_config(
+        config_file,
+        overrides={"quantum_dreamer": {"backend_type": backend}},
+    )
+    cfg.ensure_directories()
+
+    async def _run() -> dict[str, object]:
+        metrics = QAegisMetrics()
+        bus = EventBus(config=cfg.bus, metrics=metrics)
+        storage = StorageEngine(cfg.db_path)
+        lifecycle = LifecycleManager(bus=bus, config=cfg.lifecycle, metrics=metrics)
+        await bus.start()
+        await storage.initialize()
+        dreamer = QuantumDreamerService(
+            bus=bus,
+            storage=storage,
+            lifecycle=lifecycle,
+            config=cfg.quantum_dreamer,
+            metrics=metrics,
+        )
+        await dreamer.start()
+        try:
+            edges = [(i, (i + 1) % nodes, 1.0 + 0.5 * (i % 2)) for i in range(nodes)]
+            qubo = build_maxcut_qubo(num_nodes=nodes, weighted_edges=edges)
+            await dreamer.enqueue_day_problem(qubo, priority=90, policy_name="cli_demo_policy")
+            report = await dreamer.run_night_cycle(max_problems=4)
+            return report.model_dump(mode="json")
+        finally:
+            await storage.close()
+            await bus.stop()
+
+    report_dict = asyncio.run(_run())
+    solutions = report_dict["solutions"]
+    assert isinstance(solutions, list)
+    table = Table(title="Quantum Dreaming Night-Mode Results")
+    table.add_column("Problem ID", style="cyan")
+    table.add_column("Backend", style="magenta")
+    table.add_column("Best Bitstring", style="green")
+    table.add_column("Energy", style="yellow")
+    table.add_column("Approx Ratio", style="green")
+    for sol in solutions:
+        assert isinstance(sol, dict)
+        ratio = sol.get("approximation_ratio")
+        table.add_row(
+            str(sol["problem_id"]),
+            str(sol["backend_name"]),
+            str(sol["optimal_bitstring"]),
+            f"{float(sol['optimal_energy']):.3f}",
+            f"{float(ratio):.4f}" if ratio is not None else "n/a",
+        )
+    console.print(table)
+
+
+@app.command("entropy")
+def entropy_cmd(
+    qubits: Annotated[int, typer.Option("--qubits", "-q", help="Entangled circuit qubits.")] = 6,
+    shots: Annotated[int, typer.Option("--shots", "-s", help="Quantum measurement shots.")] = 512,
+) -> None:
+    """Harvest a verified quantum probability distribution and display Shannon entropy."""
+
+    async def _run() -> QuantumDistributionBatch:
+        harvester = QuantumDistributionHarvester()
+        batch, _pool = await harvester.harvest_batch(num_qubits=qubits, shots=shots)
+        return batch
+
+    batch = asyncio.run(_run())
+    table = Table(title="Quantum Entropy Harvest")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("Qubits", str(batch.num_qubits))
+    table.add_row("Shots", str(batch.shots))
+    table.add_row("Shannon Entropy (bits)", f"{batch.shannon_entropy_bits:.4f}")
+    table.add_row("Pool Bytes", str(batch.pool_bytes))
+    table.add_row("Sources", ", ".join(batch.sources))
+    console.print(table)
