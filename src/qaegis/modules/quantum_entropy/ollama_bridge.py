@@ -128,6 +128,8 @@ class OllamaQuantumBridge:
         base_temperature: float = 0.7,
     ) -> OllamaGenerationResult:
         """Execute `/v1/chat/completions` on llama.cpp or OpenAI-compatible local runtimes."""
+        if not messages:
+            raise ValueError("messages must contain at least one chat turn")
         params = self.build_sampling_params(pool=pool, base_temperature=base_temperature)
         target_model = model or self._config.ollama_model
         url = f"{self._config.ollama_base_url.rstrip('/')}/v1/chat/completions"

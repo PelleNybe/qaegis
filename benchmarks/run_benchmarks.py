@@ -25,6 +25,7 @@ from qiskit_aer.noise import NoiseModel, ReadoutError, depolarizing_error
 from rich.console import Console
 from rich.table import Table
 
+from qaegis import __version__
 from qaegis.core.bus import EventBus, generate_curve_keypair
 from qaegis.core.config import BusConfig, QAegisConfig, QuantumDreamerConfig, RealityStampConfig
 from qaegis.core.hardware_seal import PKCS11Sealer, detect_pkcs11_library
@@ -249,7 +250,7 @@ async def run_all_benchmarks(output_json: Path | None = None) -> dict[str, Any]:
 
             def _kem_roundtrip() -> None:
                 ct, _ss = sender_kem.encap_secret(bob.kem_public)
-                bob.decap_secret_val = bob.decap_kem(ct)  # type: ignore[attr-defined]
+                _ = bob.decap_kem(ct)
 
             results["pqc_primitives"]["ml_kem_768_encap_decap"] = {
                 **_bench_fn(_kem_roundtrip, 100),
@@ -420,18 +421,25 @@ async def run_all_benchmarks(output_json: Path | None = None) -> dict[str, Any]:
                     check=True,
                     capture_output=True,
                 )
+                prev_conf = os.environ.get("SOFTHSM2_CONF")
                 os.environ["SOFTHSM2_CONF"] = str(conf_path)
-                sealer = PKCS11Sealer(
-                    token_label="qaegis-bench-hsm",
-                    user_pin="5678",
-                    library_path=lib_path,
-                )
-                secret_blob = os.urandom(6144)
-                sample_sealed = sealer.seal(secret_blob)
-                return (
-                    _bench_fn(lambda: sealer.seal(secret_blob), 20),
-                    _bench_fn(lambda: sealer.unseal(sample_sealed), 20),
-                )
+                try:
+                    sealer = PKCS11Sealer(
+                        token_label="qaegis-bench-hsm",
+                        user_pin="5678",
+                        library_path=lib_path,
+                    )
+                    secret_blob = os.urandom(6144)
+                    sample_sealed = sealer.seal(secret_blob)
+                    return (
+                        _bench_fn(lambda: sealer.seal(secret_blob), 20),
+                        _bench_fn(lambda: sealer.unseal(sample_sealed), 20),
+                    )
+                finally:
+                    if prev_conf is None:
+                        os.environ.pop("SOFTHSM2_CONF", None)
+                    else:
+                        os.environ["SOFTHSM2_CONF"] = prev_conf
 
             seal_stats, unseal_stats = await asyncio.to_thread(_bench_softhsm)
             results["v02_v03_platform"]["pkcs11_softhsm2_seal"] = seal_stats
@@ -504,7 +512,7 @@ async def run_all_benchmarks(output_json: Path | None = None) -> dict[str, Any]:
 
 
 def _print_summary(results: dict[str, Any]) -> None:
-    table = Table(title="Q-Aegis v0.3 Real Hardware Benchmark Summary")
+    table = Table(title=f"Q-Aegis v{__version__} Real Hardware Benchmark Summary")
     table.add_column("Subsystem / Operation", style="cyan")
     table.add_column("Metric", style="green")
     for name, stats in results["pqc_primitives"].items():

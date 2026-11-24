@@ -1,6 +1,6 @@
 # Q-Aegis
 
-**Quantum-Secured Autonomous Edge-AI Platform (v0.4.0)**
+**Quantum-Secured Autonomous Edge-AI Platform (v0.5.0)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/PelleNybe/qaegis/ci.yml?label=CI&logo=github)](https://github.com/PelleNybe/qaegis/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/Docs-GitHub_Pages-0EA5E9?logo=materialformkdocs&logoColor=white)](https://pellenybe.github.io/qaegis/)
@@ -42,7 +42,7 @@ Autonomous edge fleets—drones, industrial robotics, tactical telemetry relays,
 2. **The Edge-AI Trust Crisis:** Autonomous perception pipelines produce high-stakes inferences without cryptographic provenance, making single-node audit logs vulnerable to split-view tampering or key extraction.
 3. **The NISQ Latency & Noise Barrier:** Real-time edge control loops demand millisecond determinism, whereas cloud Quantum Processing Units (QPUs) exhibit multi-second latency and hardware gate/readout noise.
 
-**Q-Aegis v0.3** unifies **NIST-standardized Post-Quantum Cryptography** (`liboqs`), **hardware-backed PKCS#11 / TPM 2.0 key sealing**, **CurveZMQ authenticated fleet messaging**, **multi-node ML-DSA-65 Merkle root gossiping**, **real-time Edge-AI** (PyTorch/ONNX), and **federated Day/Night multi-cloud QAOA with ZNE & TREX error mitigation** (IBM Quantum, AWS Braket, IonQ, Qiskit Aer, PennyLane, OpenQASM 3.0).
+**Q-Aegis v0.5** unifies **NIST-standardized Post-Quantum Cryptography** (`liboqs`), **hardware-backed PKCS#11 / TPM 2.0 key sealing**, **zero-downtime key rotation**, **CurveZMQ authenticated fleet messaging**, **multi-node ML-DSA-65 Merkle root gossiping**, **real-time Edge-AI** (PyTorch/self-contained ONNX), and **federated Day/Night multi-cloud QAOA with ZNE & TREX error mitigation** (IBM Quantum, AWS Braket, IonQ, Qiskit Aer, PennyLane, OpenQASM 3.0).
 
 ---
 
@@ -89,14 +89,15 @@ flowchart LR
 
 ## Feature Comparison Matrix
 
-| Capability | Traditional TLS + Edge ML | Standalone PQC Library | Cloud Quantum SDK | **Q-Aegis v0.3** |
+| Capability | Traditional TLS + Edge ML | Standalone PQC Library | Cloud Quantum SDK | **Q-Aegis v0.5** |
 | :--- | :---: | :---: | :---: | :---: |
-| NIST FIPS 203/204/205 (`ML-KEM`, `ML-DSA`, `SLH-DSA`) + CBOM | No | Partial | No | **Full Hybrid + CBOM** |
+| NIST FIPS 203/204/205 (`ML-KEM`, `ML-DSA`, `SLH-DSA`) + CycloneDX 1.6 CBOM | No | Partial | No | **Full Hybrid + CBOM** |
 | Hardware Key Sealing (`PKCS#11` HSM/SoftHSM2 & Linux `TPM 2.0`) | Partial | No | No | **Yes (Envelope AEAD)** |
-| AI-Driven Dynamic Crypto-Agility (`STANDARD` -> `CRITICAL`) | No | No | No | **Yes (IsolationForest + ONNX)** |
+| Zero-Downtime PQC Key Rotation + Historical Keyring Verification | No | No | No | **Yes (`qaegis rotate-keys`)** |
+| AI-Driven Dynamic Crypto-Agility (`STANDARD` -> `CRITICAL` + Replay Defense) | No | No | No | **Yes (IsolationForest + ONNX)** |
 | Multi-Node Merkle Root Gossip & Equivocation Detection | No | No | No | **Yes (ML-DSA-65 + CurveZMQ)** |
 | Federated Day/Night QAOA with Isomorphism Dedup & Budget | No | No | No | **Yes (Multi-Vendor Registry)** |
-| Native Qiskit ZNE + TREX Quantum Error Mitigation | No | No | Vendor-locked | **Yes (-92.6% noisy error)** |
+| Native Qiskit ZNE + TREX Quantum Error Mitigation | No | No | Vendor-locked | **Yes (-85% to -92% error)** |
 | Multi-Cloud QPU Backends (`IBM`, `AWS Braket`, `IonQ`, `Aer`) | No | No | Single-vendor | **Yes (Pluggable Registry)** |
 
 ---
@@ -144,7 +145,7 @@ qaegis entropy --qubits 6 --shots 512
 
 ---
 
-## Reproducible Hardware Benchmarks (v0.3.0)
+## Reproducible Hardware Benchmarks (v0.5.0)
 
 Measured locally via `.venv/bin/python benchmarks/run_benchmarks.py` ([benchmarks/results.json](benchmarks/results.json)) on a **4-core Intel Core i5-6200U @ 2.30 GHz (15 GB RAM, Linux x86_64, Python 3.14.4, `liboqs` 0.16.0, SoftHSM2, Qiskit 2.6.2, PyTorch 2.15.0+cpu)**:
 
@@ -152,28 +153,28 @@ Measured locally via `.venv/bin/python benchmarks/run_benchmarks.py` ([benchmark
 
 | Operation / Subsystem | Mean Latency | p95 Latency | Throughput / Size |
 | :--- | ---: | ---: | :--- |
-| **ML-KEM-768** Encap + Decap (FIPS 203) | `0.071 ms` | `0.102 ms` | `14,095.4 ops/s` (PK `1,184 B` / CT `1,088 B`) |
-| **ML-DSA-65** Sign / Verify (FIPS 204) | `0.363 ms` / `0.160 ms` | `0.882` / `0.187 ms` | `2,757.8` / `6,250.8 ops/s` (Sig `3,309 B`) |
-| **SLH-DSA-SHA2-128f** Sign / Verify (FIPS 205) | `40.790 ms` / `2.344 ms` | `59.964` / `2.533 ms` | `24.5` / `426.6 ops/s` (Sig `17,088 B`) |
-| **Chameleon `STANDARD`** (1 KB, X25519 + AES-GCM) | `0.272 ms` | `0.323 ms` | `3,678.5 ops/s` (`1,960 B` JSON) |
-| **Chameleon `ELEVATED`** (1 KB, Hybrid ML-KEM-768) | `0.433 ms` | `0.481 ms` | `2,306.9 ops/s` (`3,435 B` JSON) |
-| **Chameleon `QUANTUM_CRITICAL`** (Hybrid + ML-DSA-65) | `1.096 ms` | `1.701 ms` | `912.1 ops/s` (`10,460 B` JSON) |
-| **RealityStamp E2E** (QRNG + ML-DSA-65 + Merkle + WAL) | `4.671 ms` | `10.156 ms` | `214.1 stamps/s` |
-| **PKCS#11 SoftHSM2 Seal / Unseal** (6 KB PQC bundle) | `5.245 ms` / `5.827 ms` | `7.118` / `8.799 ms` | `190.7` / `171.6 ops/s` |
-| **CurveZMQ Authenticated Event Bus** (Curve25519 ZAP) | `0.450 ms/msg` | — | **`2,223.0 msgs/s`** |
-| **3-Node ML-DSA-65 Merkle Gossip Mesh** | **`17.68 ms`** | — | Full 3-node convergence |
+| **ML-KEM-768** Encap + Decap (FIPS 203) | `0.076 ms` | `0.121 ms` | `13,191.3 ops/s` (PK `1,184 B` / CT `1,088 B`) |
+| **ML-DSA-65** Sign / Verify (FIPS 204) | `0.213 ms` / `0.093 ms` | `0.409` / `0.161 ms` | `4,699.0` / `10,702.8 ops/s` (Sig `3,309 B`) |
+| **SLH-DSA-SHA2-128f** Sign / Verify (FIPS 205) | `43.059 ms` / `2.643 ms` | `47.404` / `4.635 ms` | `23.2` / `378.4 ops/s` (Sig `17,088 B`) |
+| **Chameleon `STANDARD`** (1 KB, X25519 + AES-GCM) | `0.337 ms` | `0.571 ms` | `2,969.5 ops/s` (`1,962 B` JSON) |
+| **Chameleon `ELEVATED`** (1 KB, Hybrid ML-KEM-768) | `0.569 ms` | `1.012 ms` | `1,756.8 ops/s` (`3,437 B` JSON) |
+| **Chameleon `QUANTUM_CRITICAL`** (Hybrid + ML-DSA-65) | `1.088 ms` | `1.942 ms` | `919.3 ops/s` (`10,462 B` JSON) |
+| **RealityStamp E2E** (QRNG + ML-DSA-65 + Merkle + WAL) | `8.623 ms` | `11.884 ms` | `116.0 stamps/s` |
+| **PKCS#11 SoftHSM2 Seal / Unseal** (6 KB PQC bundle) | `5.215 ms` / `5.066 ms` | `6.418` / `7.345 ms` | `191.8` / `197.4 ops/s` |
+| **CurveZMQ Authenticated Event Bus** (Curve25519 ZAP) | `0.377 ms/msg` | — | **`2,655.9 msgs/s`** |
+| **3-Node ML-DSA-65 Merkle Gossip Mesh** | **`21.31 ms`** | — | Full 3-node convergence |
 
-### Edge-AI Compilation, QAOA & Quantum Error Mitigation (ZNE + TREX)
+### Edge-AI Compilation, Cached QAOA & Quantum Error Mitigation (ZNE + TREX)
 
 | Quantum Workload | Measured Result | Quality / Error Reduction |
 | :--- | :--- | :--- |
-| **AI-to-Qubit Autoencoder** (PyTorch vs ONNX Runtime, 4q) | `0.374 ms` vs **`0.070 ms`** | **5.3x ONNX speedup** (`14,226.4 ops/s`) |
-| **QAOA Weighted Max-Cut** (4q SV / 6q SV / 4q Noisy) | `4.71 s` / `5.31 s` / `1.32 s` | **Approximation Ratio `1.0000`** on all 3 |
+| **AI-to-Qubit Autoencoder** (PyTorch vs self-contained ONNX, 4q) | `0.443 ms` vs **`0.073 ms`** | **6.1x ONNX speedup** (`13,643.7 ops/s`) |
+| **QAOA Weighted Max-Cut** (4q SV / 6q SV / 4q Noisy, cached circuits) | **`0.43 s` / `0.32 s` / `0.21 s`** | **11x–16x faster vs v0.4**, Ratio **`1.0000`** |
 | **Noisy Aer Expectation — Unmitigated** (exact `-0.4831`) | `-1.5879` | Abs error `1.1048` (baseline) |
 | **Noisy Aer Expectation — ZNE Only** (linear fold `[1,3,5]`) | `-1.4114` | Abs error `0.9283` (`-16.0%`) |
-| **Noisy Aer Expectation — TREX Only** (16 Pauli-X twirls) | `-0.7986` | Abs error `0.3155` (`-71.4%`) |
-| **Noisy Aer Expectation — Combined ZNE + TREX** | **`-0.5652`** | Abs error **`0.0821`** (**`-92.6%` error reduction**) |
-| **Quantum Entropy Harvester** (6q, 512 shots + QRNG XOR) | `62.28 ms` (`256 B` pool) | Shannon Entropy **`3.9268 bits`** |
+| **Noisy Aer Expectation — TREX Only** (16 batched Pauli-X twirls) | `-0.8551` | Abs error `0.3720` (`-66.3%`) |
+| **Noisy Aer Expectation — Combined ZNE + TREX** | **`-0.6478`** | Abs error **`0.1647`** (**`-85.1%` error reduction**) |
+| **Quantum Entropy Harvester** (6q, 512 shots + QRNG XOR) | `62.57 ms` (`256 B` pool) | Shannon Entropy **`3.8412 bits`** |
 
 ---
 
@@ -197,6 +198,7 @@ Measured locally via `.venv/bin/python benchmarks/run_benchmarks.py` ([benchmark
 - [x] **v0.2.0:** Hardware PKCS#11 (HSM/SoftHSM2) & Linux TPM 2.0 key sealing, AWS Braket & IonQ Cloud API v0.3 backend plugins, and CurveZMQ authenticated Event Bus with ZAP allowlist metrics.
 - [x] **v0.3.0:** Distributed multi-node ML-DSA-65 Merkle root gossiping with equivocation detection, federated Night-Mode QAOA fleet scheduling with isomorphism deduplication & budget enforcement, and Qiskit ZNE + TREX error mitigation pipelines.
 - [x] **v0.4.0:** Zero-downtime PQC key rotation with historical `keyring.json` verification (`qaegis rotate-keys`), interactive `qaegis demo` live showcase, CycloneDX 1.6 CBOM export (`qaegis cbom --format cyclonedx`), Grafana v10+ dashboard & Prometheus alert rules, >=90% branch+statement coverage gate, and automated wheel/sdist build verification.
+- [x] **v0.5.0:** Comprehensive security, concurrency & performance evolution — strict Merkle leaf-to-stamp binding, Chameleon replay/cipher-suite/recipient defense + keyring support, serialized SQLite WAL transactions + dream/policy integrity audits, EventBus ZMQ loopback deduplication, zeroized key use-after-retire guards, self-contained ONNX standardization export, **11x–16x faster QAOA** via parameterized circuit caching, batched ZNE+TREX twirling, thread-safe vectorized `QuantumEntropyPool`, and SoftHSM2 CI coverage.
 
 ---
 
@@ -209,7 +211,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md]
   title        = {Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform},
   author       = {{Q-Aegis Contributors}},
   year         = {2026},
-  version      = {0.4.0},
+  version      = {0.5.0},
   license      = {Apache-2.0},
   url          = {https://github.com/PelleNybe/qaegis}
 }

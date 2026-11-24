@@ -17,6 +17,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
+from qaegis import __version__
 from qaegis.core.bus import EventBus
 from qaegis.core.config import QAegisConfig, QuantumDreamerConfig, RealityStampConfig
 from qaegis.core.identity import IdentityManager
@@ -70,9 +71,10 @@ async def run_interactive_demo(
     stages: list[DemoStageMetric] = []
     t_start = time.perf_counter()
 
+    title_line = f"[bold cyan]Q-Aegis v{__version__} — Quantum-Secured Autonomous Edge-AI Demo"
     out.print(
         Panel.fit(
-            "[bold cyan]Q-Aegis v0.4.0 — Quantum-Secured Autonomous Edge-AI Live Demo[/bold cyan]\n"
+            f"{title_line}[/bold cyan]\n"
             "[dim]Executing real NIST PQC (liboqs), ONNX Runtime, Qiskit QAOA & ZNE+TREX[/dim]",
             border_style="cyan",
         )
@@ -141,156 +143,165 @@ async def run_interactive_demo(
             config=cfg.reality_stamp,
         )
         await reality_svc.start()
-        stamp = await reality_svc.stamp_perception(
-            sensor_id="lidar-front-01",
-            perception_label="pedestrian_crossing",
-            confidence=0.98,
-            metadata={"range_m": 6.4},
-        )
-        ver = verify_reality_stamp(stamp, keyring=edge_mgr.load_keyring())
-        s2_ms = (time.perf_counter() - s0) * 1000.0
-        progress.remove_task(t2)
-        stages.append(
-            DemoStageMetric(
-                stage="2. Proof of Reality",
-                subsystem="reality_stamp",
-                latency_ms=round(s2_ms, 2),
-                outcome=(
-                    f"Valid={ver.valid}, MerkleProof={ver.merkle_proof_ok}, Alg={stamp.algorithm}"
-                ),
+        try:
+            stamp = await reality_svc.stamp_perception(
+                sensor_id="lidar-front-01",
+                perception_label="pedestrian_crossing",
+                confidence=0.98,
+                metadata={"range_m": 6.4},
             )
-        )
-
-        # Stage 3: Quantum Chameleon Adaptive Threat Escalation (STANDARD -> ELEVATED -> CRITICAL)
-        t3 = progress.add_task(
-            "[3/5] Running Chameleon AI Anomaly Firewall Escalation...", total=None
-        )
-        s0 = time.perf_counter()
-        fw_edge = ChameleonFirewallService(
-            bus=bus,
-            identity=edge_id,
-            config=cfg.chameleon_fw,
-            onnx_model_path=tmp / "hndl_demo.onnx",
-        )
-        fw_ground = ChameleonFirewallService(bus=bus, identity=ground_id, config=cfg.chameleon_fw)
-        tiers_seen: list[str] = []
-        demo_flows = [
-            ("lan", "public", 0.1, b'{"battery_pct": 91}'),
-            ("wan", "confidential", 6.0, b"route_plan:" + os.urandom(64)),
-            ("satellite", "top_secret", 20.0, b"mission_orders:" + os.urandom(256)),
-        ]
-        for proto, sens, years, body in demo_flows:
-            pkt = await fw_edge.protect(
-                TrafficObservation(
-                    source=edge_id.node_id,
-                    destination=ground_id.node_id,
-                    protocol=proto,
-                    sensitivity=sens,  # type: ignore[arg-type]
-                    payload_bytes=body,
-                    long_term_retention_years=years,
-                ),
-                recipient=ground_id.public_bundle(),
+            ver = verify_reality_stamp(stamp, keyring=edge_mgr.load_keyring())
+            s2_ms = (time.perf_counter() - s0) * 1000.0
+            progress.remove_task(t2)
+            stages.append(
+                DemoStageMetric(
+                    stage="2. Proof of Reality",
+                    subsystem="reality_stamp",
+                    latency_ms=round(s2_ms, 2),
+                    outcome=(
+                        f"Valid={ver.valid}, MerkleProof={ver.merkle_proof_ok}, "
+                        f"Alg={stamp.algorithm}"
+                    ),
+                )
             )
-            recovered = fw_ground.unprotect(pkt.envelope, expected_sender=edge_id.public_bundle())
-            if recovered != body:
-                raise RuntimeError("Chameleon decrypt verification mismatch during demo")
-            tiers_seen.append(pkt.envelope.tier.value)
-        s3_ms = (time.perf_counter() - s0) * 1000.0
-        progress.remove_task(t3)
-        stages.append(
-            DemoStageMetric(
-                stage="3. Chameleon Firewall",
-                subsystem="chameleon_fw",
-                latency_ms=round(s3_ms, 2),
-                outcome=" -> ".join(tiers_seen),
+
+            # Stage 3: Quantum Chameleon Adaptive Threat Escalation
+            t3 = progress.add_task(
+                "[3/5] Running Chameleon AI Anomaly Firewall Escalation...", total=None
             )
-        )
-
-        # Stage 4: AI-to-Qubit Compiler (ONNX Autoencoder -> OpenQASM 3.0)
-        t4 = progress.add_task(
-            "[4/5] Compiling Sensor Tensor via ONNX -> OpenQASM 3.0...", total=None
-        )
-        s0 = time.perf_counter()
-        rng = np.random.default_rng(42)
-        samples = rng.normal(size=(48, 16)).astype(np.float32)
-        pipe = AngleEncoderPipeline(input_dim=16, num_qubits=4, hidden_dim=24)
-        pipe.train(samples, epochs=10 if fast else 20)
-        onnx_file = tmp / "angle_encoder_demo.onnx"
-        pipe.export_onnx(onnx_file)
-        pipe.load_onnx(onnx_file)
-        angles = pipe.encode_to_angles(samples[0])
-        builder = NoiseAwareCircuitBuilder(BackendNoiseProfile())
-        _qc, artifact = builder.build_qiskit_circuit(angles)
-        s4_ms = (time.perf_counter() - s0) * 1000.0
-        progress.remove_task(t4)
-        stages.append(
-            DemoStageMetric(
-                stage="4. AI-to-Qubit Compiler",
-                subsystem="qubit_compiler",
-                latency_ms=round(s4_ms, 2),
-                outcome=(
-                    f"{artifact.num_qubits}q OpenQASM 3.0 (depth={artifact.depth}, "
-                    f"fidelity={artifact.estimated_fidelity:.3f})"
-                ),
+            s0 = time.perf_counter()
+            fw_edge = ChameleonFirewallService(
+                bus=bus,
+                identity=edge_id,
+                config=cfg.chameleon_fw,
+                onnx_model_path=tmp / "hndl_demo.onnx",
             )
-        )
-
-        # Stage 5: Night-Mode QAOA + ZNE & TREX Error Mitigation on Noisy Aer
-        t5 = progress.add_task(
-            "[5/5] Solving QAOA Max-Cut + ZNE/TREX Error Mitigation on Noisy Aer...", total=None
-        )
-        s0 = time.perf_counter()
-        qubo = build_maxcut_qubo(4, [(0, 1, 1.5), (1, 2, 1.5), (2, 3, 1.5), (3, 0, 1.5)])
-        ham = qubo_to_ising(qubo)
-        solver = QaoaSolver(config=cfg.quantum_dreamer, backend=AerNoisyBackend(seed=42))
-        sol = await asyncio.to_thread(solver.solve, qubo)
-
-        # Measure real ZNE + TREX expectation error reduction vs exact statevector ground truth
-        gammas = [0.45, 0.70]
-        betas = [0.55, 0.25]
-        eval_qc = build_qaoa_circuit(ham, gammas, betas, measure=True)
-        sv_dist = AerStatevectorBackend().sample_distribution(ham, gammas, betas, shots=1)
-        exact_e = sum(p * evaluate_ising(ham, bs) for bs, p in sv_dist.items())
-
-        nm = NoiseModel()
-        nm.add_all_qubit_quantum_error(depolarizing_error(0.005, 1), ["h", "rx", "ry", "rz", "x"])
-        nm.add_all_qubit_quantum_error(depolarizing_error(0.025, 2), ["cx", "rzz"])
-        nm.add_all_qubit_readout_error(ReadoutError([[0.96, 0.04], [0.14, 0.86]]))
-        noisy_sim = AerSimulator(noise_model=nm)
-
-        mit_res = await asyncio.to_thread(
-            ErrorMitigationPipeline(
-                noisy_sim,
-                mode="both",
-                scale_factors=[1, 3] if fast else [1, 3, 5],
-                extrapolation="linear",
-                num_twirls=8 if fast else 16,
-                seed=42,
-            ).evaluate_expectation,
-            eval_qc,
-            ham,
-            1024 if fast else 4096,
-        )
-        raw_err = abs(mit_res.unmitigated_energy - exact_e)
-        mit_err = abs(mit_res.mitigated_energy - exact_e)
-        reduction_pct = (1.0 - mit_err / max(raw_err, 1e-9)) * 100.0
-        s5_ms = (time.perf_counter() - s0) * 1000.0
-        progress.remove_task(t5)
-        stages.append(
-            DemoStageMetric(
-                stage="5. QAOA + ZNE/TREX",
-                subsystem="quantum_dreamer",
-                latency_ms=round(s5_ms, 2),
-                outcome=(
-                    f"Cut={sol.optimal_bitstring} (ratio={sol.approximation_ratio:.2f}), "
-                    f"ZNE+TREX err {raw_err:.3f}->{mit_err:.3f} ({reduction_pct:+.1f}%)"
-                ),
+            fw_ground = ChameleonFirewallService(
+                bus=bus, identity=ground_id, config=cfg.chameleon_fw
             )
-        )
+            tiers_seen: list[str] = []
+            demo_flows = [
+                ("lan", "public", 0.1, b'{"battery_pct": 91}'),
+                ("wan", "confidential", 6.0, b"route_plan:" + os.urandom(64)),
+                ("satellite", "top_secret", 20.0, b"mission_orders:" + os.urandom(256)),
+            ]
+            for proto, sens, years, body in demo_flows:
+                pkt = await fw_edge.protect(
+                    TrafficObservation(
+                        source=edge_id.node_id,
+                        destination=ground_id.node_id,
+                        protocol=proto,
+                        sensitivity=sens,  # type: ignore[arg-type]
+                        payload_bytes=body,
+                        long_term_retention_years=years,
+                    ),
+                    recipient=ground_id.public_bundle(),
+                )
+                recovered = fw_ground.unprotect(
+                    pkt.envelope, expected_sender=edge_id.public_bundle()
+                )
+                if recovered != body:
+                    raise RuntimeError("Chameleon decrypt verification mismatch during demo")
+                tiers_seen.append(pkt.envelope.tier.value)
+            s3_ms = (time.perf_counter() - s0) * 1000.0
+            progress.remove_task(t3)
+            stages.append(
+                DemoStageMetric(
+                    stage="3. Chameleon Firewall",
+                    subsystem="chameleon_fw",
+                    latency_ms=round(s3_ms, 2),
+                    outcome=" -> ".join(tiers_seen),
+                )
+            )
 
-        await reality_svc.stop()
-        await storage.close()
-        await bus.stop()
+            # Stage 4: AI-to-Qubit Compiler (ONNX Autoencoder -> OpenQASM 3.0)
+            t4 = progress.add_task(
+                "[4/5] Compiling Sensor Tensor via ONNX -> OpenQASM 3.0...", total=None
+            )
+            s0 = time.perf_counter()
+            rng = np.random.default_rng(42)
+            samples = rng.normal(size=(48, 16)).astype(np.float32)
+            pipe = AngleEncoderPipeline(input_dim=16, num_qubits=4, hidden_dim=24)
+            pipe.train(samples, epochs=10 if fast else 20)
+            onnx_file = tmp / "angle_encoder_demo.onnx"
+            pipe.export_onnx(onnx_file)
+            pipe.load_onnx(onnx_file)
+            angles = pipe.encode_to_angles(samples[0])
+            builder = NoiseAwareCircuitBuilder(BackendNoiseProfile())
+            _qc, artifact = builder.build_qiskit_circuit(angles)
+            s4_ms = (time.perf_counter() - s0) * 1000.0
+            progress.remove_task(t4)
+            stages.append(
+                DemoStageMetric(
+                    stage="4. AI-to-Qubit Compiler",
+                    subsystem="qubit_compiler",
+                    latency_ms=round(s4_ms, 2),
+                    outcome=(
+                        f"{artifact.num_qubits}q OpenQASM 3.0 (depth={artifact.depth}, "
+                        f"fidelity={artifact.estimated_fidelity:.3f})"
+                    ),
+                )
+            )
+
+            # Stage 5: Night-Mode QAOA + ZNE & TREX Error Mitigation on Noisy Aer
+            t5 = progress.add_task(
+                "[5/5] Solving QAOA Max-Cut + ZNE/TREX Error Mitigation on Noisy Aer...",
+                total=None,
+            )
+            s0 = time.perf_counter()
+            qubo = build_maxcut_qubo(4, [(0, 1, 1.5), (1, 2, 1.5), (2, 3, 1.5), (3, 0, 1.5)])
+            ham = qubo_to_ising(qubo)
+            solver = QaoaSolver(config=cfg.quantum_dreamer, backend=AerNoisyBackend(seed=42))
+            sol = await asyncio.to_thread(solver.solve, qubo)
+
+            # Measure real ZNE + TREX expectation error reduction vs exact statevector ground truth
+            gammas = [0.45, 0.70]
+            betas = [0.55, 0.25]
+            eval_qc = build_qaoa_circuit(ham, gammas, betas, measure=True)
+            sv_dist = AerStatevectorBackend().sample_distribution(ham, gammas, betas, shots=1)
+            exact_e = sum(p * evaluate_ising(ham, bs) for bs, p in sv_dist.items())
+
+            nm = NoiseModel()
+            nm.add_all_qubit_quantum_error(
+                depolarizing_error(0.005, 1), ["h", "rx", "ry", "rz", "x"]
+            )
+            nm.add_all_qubit_quantum_error(depolarizing_error(0.025, 2), ["cx", "rzz"])
+            nm.add_all_qubit_readout_error(ReadoutError([[0.96, 0.04], [0.14, 0.86]]))
+            noisy_sim = AerSimulator(noise_model=nm)
+
+            mit_res = await asyncio.to_thread(
+                ErrorMitigationPipeline(
+                    noisy_sim,
+                    mode="both",
+                    scale_factors=[1, 3] if fast else [1, 3, 5],
+                    extrapolation="linear",
+                    num_twirls=8 if fast else 16,
+                    seed=42,
+                ).evaluate_expectation,
+                eval_qc,
+                ham,
+                1024 if fast else 4096,
+            )
+            raw_err = abs(mit_res.unmitigated_energy - exact_e)
+            mit_err = abs(mit_res.mitigated_energy - exact_e)
+            reduction_pct = (1.0 - mit_err / max(raw_err, 1e-9)) * 100.0
+            s5_ms = (time.perf_counter() - s0) * 1000.0
+            progress.remove_task(t5)
+            stages.append(
+                DemoStageMetric(
+                    stage="5. QAOA + ZNE/TREX",
+                    subsystem="quantum_dreamer",
+                    latency_ms=round(s5_ms, 2),
+                    outcome=(
+                        f"Cut={sol.optimal_bitstring} (ratio={sol.approximation_ratio:.2f}), "
+                        f"ZNE+TREX err {raw_err:.3f}->{mit_err:.3f} ({reduction_pct:+.1f}%)"
+                    ),
+                )
+            )
+        finally:
+            await reality_svc.stop()
+            await storage.close()
+            await bus.stop()
 
     total_s = round(time.perf_counter() - t_start, 2)
     table = Table(title=f"Q-Aegis Live Demo Executive Summary (Total: {total_s:.2f}s)")

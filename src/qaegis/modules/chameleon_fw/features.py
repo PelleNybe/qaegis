@@ -73,6 +73,13 @@ class TrafficFeatureExtractor:
         self._timestamps: deque[float] = deque(maxlen=window_size)
         self._sizes: deque[int] = deque(maxlen=window_size)
 
+    @property
+    def mean_window_payload_bytes(self) -> float:
+        """Return rolling average payload byte length across the active sliding window."""
+        if not self._sizes:
+            return 0.0
+        return float(sum(self._sizes)) / float(len(self._sizes))
+
     def extract(self, obs: TrafficObservation) -> NDArray[np.float32]:
         """Compute normalized 8-float feature vector from a `TrafficObservation`."""
         ts = obs.timestamp_utc.timestamp()

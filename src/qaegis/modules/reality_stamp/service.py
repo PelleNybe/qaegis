@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
-
-import orjson
 
 from qaegis.core.bus import EventBus, EventEnvelope, Subscription
 from qaegis.core.config import RealityStampConfig
-from qaegis.core.identity import DeviceIdentity
+from qaegis.core.identity import DeviceIdentity, TrustKeyring
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, get_logger
-from qaegis.modules.reality_stamp.merkle import MerkleTree, hash_leaf
+from qaegis.modules.reality_stamp.merkle import MerkleTree
 from qaegis.modules.reality_stamp.qrng import MultiSourceQrng
 from qaegis.modules.reality_stamp.signer import (
     RealityPayload,
     RealitySigner,
     RealityStamp,
     StampVerificationResult,
+    compute_stamp_leaf_hash,
     verify_reality_stamp,
 )
 
@@ -44,6 +44,7 @@ class RealityStampService:
         self._qrng = qrng or MultiSourceQrng(config=self._config, metrics=self._metrics)
         self._signer = RealitySigner(identity=identity, metrics=self._metrics)
         self._merkle = MerkleTree()
+        self._merkle_lock = asyncio.Lock()
         self._sub: Subscription | None = None
 
     @property
@@ -99,27 +100,19 @@ class RealityStampService:
             use_stateless_hash_sig=use_stateless_hash_sig,
         )
 
-        # Anchor signed stamp canonically in Merkle Tree and SQLite WAL
-        leaf_bytes = orjson.dumps(
-            {
-                "payload_sha256": stamp.payload_sha256,
-                "signature_b64": stamp.signature_b64,
-                "algorithm": stamp.algorithm,
-                "public_key_fingerprint": stamp.public_key_fingerprint,
-            },
-            option=orjson.OPT_SORT_KEYS,
-        )
-        leaf_hex = hash_leaf(leaf_bytes).hex()
-        idx = await self._storage.save_merkle_leaf(
-            stamp_id=payload.stamp_id,
-            leaf_hash=leaf_hex,
-            algorithm=stamp.algorithm,
-            payload_json=payload.canonical_bytes().decode("utf-8"),
-            signature_b64=stamp.signature_b64,
-            public_key_fingerprint=stamp.public_key_fingerprint,
-        )
-        tree_idx, _root = self._merkle.append_leaf_hash(leaf_hex)
-        proof = self._merkle.generate_proof(tree_idx)
+        # Anchor signed stamp canonically in Merkle Tree and SQLite WAL under a single lock
+        leaf_hex = compute_stamp_leaf_hash(stamp)
+        async with self._merkle_lock:
+            idx = await self._storage.save_merkle_leaf(
+                stamp_id=payload.stamp_id,
+                leaf_hash=leaf_hex,
+                algorithm=stamp.algorithm,
+                payload_json=payload.canonical_bytes().decode("utf-8"),
+                signature_b64=stamp.signature_b64,
+                public_key_fingerprint=stamp.public_key_fingerprint,
+            )
+            tree_idx, _root = self._merkle.append_leaf_hash(leaf_hex)
+            proof = self._merkle.generate_proof(tree_idx)
         anchored = stamp.model_copy(update={"merkle_proof": proof})
 
         await self._storage.append_audit_event(
@@ -139,9 +132,13 @@ class RealityStampService:
         )
         return anchored
 
-    def verify(self, stamp: RealityStamp) -> StampVerificationResult:
-        """Verify a RealityStamp signature, payload integrity, and Merkle inclusion proof."""
-        return verify_reality_stamp(stamp, metrics=self._metrics)
+    def verify(
+        self,
+        stamp: RealityStamp,
+        keyring: TrustKeyring | None = None,
+    ) -> StampVerificationResult:
+        """Verify a RealityStamp signature, payload integrity, keyring, and Merkle proof."""
+        return verify_reality_stamp(stamp, keyring=keyring, metrics=self._metrics)
 
     async def _on_perception_event(self, envelope: EventEnvelope) -> None:
         p = envelope.payload

@@ -11,7 +11,12 @@ import numpy as np
 import orjson
 from pydantic import BaseModel, Field
 
-from qaegis.core.identity import DeviceIdentity, PublicIdentityBundle
+from qaegis.core.identity import (
+    DeviceIdentity,
+    PublicIdentityBundle,
+    TrustKeyring,
+    constant_time_equal,
+)
 from qaegis.core.telemetry import get_logger
 from qaegis.modules.quantum_dreamer.policy_updater import (
     PolicyScorer,
@@ -150,6 +155,7 @@ class FederatedScheduleReport(BaseModel):
     unique_problems_solved: int
     deduplicated_count: int
     deferred_for_budget_count: int
+    failed_groups_count: int = 0
     qpu_seconds_used: float
     budget_seconds: float
     broadcasts: list[SignedPolicyBroadcast] = Field(default_factory=list)
@@ -195,6 +201,7 @@ class FederatedScheduler:
         solved_groups = 0
         dedup_saved = 0
         deferred_groups = 0
+        failed_groups = 0
         broadcasts: list[SignedPolicyBroadcast] = []
 
         for c_hash, members in ranked_groups:
@@ -206,7 +213,17 @@ class FederatedScheduler:
                     self._pending.append(sub)
                 continue
 
-            sol = self._solver.solve(rep_sub.qubo)
+            try:
+                sol = self._solver.solve(rep_sub.qubo)
+            except Exception:
+                failed_groups += 1
+                logger.exception(
+                    "federated_qaoa_group_failed",
+                    canonical_hash=c_hash[:16],
+                    problem_id=rep_sub.qubo.problem_id,
+                )
+                continue
+
             qpu_used += max(rep_sub.estimated_qpu_seconds, sol.solve_time_s)
             solved_groups += 1
             dedup_saved += len(members) - 1
@@ -228,6 +245,7 @@ class FederatedScheduler:
             unique_solved=solved_groups,
             deduplicated=dedup_saved,
             deferred=deferred_groups,
+            failed=failed_groups,
             qpu_seconds_used=round(qpu_used, 2),
         )
         return FederatedScheduleReport(
@@ -235,6 +253,7 @@ class FederatedScheduler:
             unique_problems_solved=solved_groups,
             deduplicated_count=dedup_saved,
             deferred_for_budget_count=deferred_groups,
+            failed_groups_count=failed_groups,
             qpu_seconds_used=qpu_used,
             budget_seconds=self._budget_s,
             broadcasts=broadcasts,
@@ -272,18 +291,38 @@ class FederatedScheduler:
 
 def verify_federated_broadcast(
     broadcast: SignedPolicyBroadcast,
-    trusted_coordinator: PublicIdentityBundle,
+    trusted_coordinator: PublicIdentityBundle | TrustKeyring,
 ) -> bool:
     """Verify the Fleet Coordinator's ML-DSA-65 signature on a federated policy broadcast."""
     if broadcast.coordinator_node_id != trusted_coordinator.node_id:
         return False
-    expected_pub = base64.b64decode(trusted_coordinator.primary_sig_public_b64)
+
+    candidate_pubs: list[bytes] = []
+    if isinstance(trusted_coordinator, TrustKeyring):
+        for bundle in trusted_coordinator.keys.values():
+            candidate_pubs.append(base64.b64decode(bundle.primary_sig_public_b64))
+    else:
+        candidate_pubs.append(base64.b64decode(trusted_coordinator.primary_sig_public_b64))
+
     try:
+        claimed_pub = base64.b64decode(broadcast.coordinator_pub_b64)
         sig_bytes = base64.b64decode(broadcast.signature_b64)
+    except Exception:
+        return False
+
+    matched_pub: bytes | None = None
+    for pub in candidate_pubs:
+        if constant_time_equal(claimed_pub, pub):
+            matched_pub = pub
+            break
+    if matched_pub is None:
+        return False
+
+    try:
         return DeviceIdentity.verify(
             broadcast.signing_bytes(),
             sig_bytes,
-            expected_pub,
+            matched_pub,
             broadcast.sig_alg,
         )
     except Exception:
@@ -292,11 +331,17 @@ def verify_federated_broadcast(
 
 async def apply_federated_broadcast(
     broadcast: SignedPolicyBroadcast,
-    trusted_coordinator: PublicIdentityBundle,
+    trusted_coordinator: PublicIdentityBundle | TrustKeyring,
     local_updater: PolicyUpdater,
     local_scorer: PolicyScorer,
+    expected_target_node_id: str | None = None,
 ) -> PolicyUpdateResult:
-    """Verify coordinator PQC signature, then apply with local validation & rollback guard."""
+    """Verify coordinator PQC signature & target node, then apply with rollback guard."""
+    if expected_target_node_id is not None and broadcast.target_node_id != expected_target_node_id:
+        raise ValueError(
+            f"Federated broadcast targeted to '{broadcast.target_node_id}', "
+            f"not local node '{expected_target_node_id}'"
+        )
     if not verify_federated_broadcast(broadcast, trusted_coordinator):
         raise ValueError(
             f"ML-DSA-65 signature verification failed for federated broadcast from "

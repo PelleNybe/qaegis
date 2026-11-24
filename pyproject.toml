@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qaegis"
-version = "0.4.0"
+version = "0.5.0"
 description = "Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform"
 readme = "README.md"
 license = "Apache-2.0"
@@ -119,13 +119,12 @@ select = [
     "ASYNC",
 ]
 ignore = [
-    "S101",  # assert allowed in runtime invariants/tests
     "S311",  # standard pseudo-random permitted where explicitly non-cryptographic (e.g. ML splits)
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S105", "S106", "S108"]
-"benchmarks/**/*.py" = ["S105", "S106", "S108"]
+"tests/**/*.py" = ["S101", "S105", "S106", "S108"]
+"benchmarks/**/*.py" = ["S101", "S105", "S106", "S108"]
 
 [tool.mypy]
 python_version = "3.11"

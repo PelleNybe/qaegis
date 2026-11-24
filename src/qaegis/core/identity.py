@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from pydantic import BaseModel, Field
 
+from qaegis import __version__
 from qaegis.core.config import IdentityConfig
 from qaegis.core.hardware_seal import HardwareSealer, SealedBlob
 from qaegis.core.telemetry import QAegisMetrics, get_logger
@@ -60,8 +61,30 @@ _ALGORITHM_OIDS: dict[str, tuple[str, int]] = {
     "ML-DSA-44": ("2.16.840.1.101.3.4.3.17", 2),
     "ML-DSA-65": ("2.16.840.1.101.3.4.3.18", 3),
     "ML-DSA-87": ("2.16.840.1.101.3.4.3.19", 5),
+    "SLH-DSA-SHA2-128s": ("2.16.840.1.101.3.4.3.20", 1),
+    "SLH_DSA_PURE_SHA2_128S": ("2.16.840.1.101.3.4.3.20", 1),
     "SLH-DSA-SHA2-128f": ("2.16.840.1.101.3.4.3.21", 1),
     "SLH_DSA_PURE_SHA2_128F": ("2.16.840.1.101.3.4.3.21", 1),
+    "SLH-DSA-SHA2-192s": ("2.16.840.1.101.3.4.3.22", 3),
+    "SLH_DSA_PURE_SHA2_192S": ("2.16.840.1.101.3.4.3.22", 3),
+    "SLH-DSA-SHA2-192f": ("2.16.840.1.101.3.4.3.23", 3),
+    "SLH_DSA_PURE_SHA2_192F": ("2.16.840.1.101.3.4.3.23", 3),
+    "SLH-DSA-SHA2-256s": ("2.16.840.1.101.3.4.3.24", 5),
+    "SLH_DSA_PURE_SHA2_256S": ("2.16.840.1.101.3.4.3.24", 5),
+    "SLH-DSA-SHA2-256f": ("2.16.840.1.101.3.4.3.25", 5),
+    "SLH_DSA_PURE_SHA2_256F": ("2.16.840.1.101.3.4.3.25", 5),
+    "SLH-DSA-SHAKE-128s": ("2.16.840.1.101.3.4.3.26", 1),
+    "SLH_DSA_PURE_SHAKE_128S": ("2.16.840.1.101.3.4.3.26", 1),
+    "SLH-DSA-SHAKE-128f": ("2.16.840.1.101.3.4.3.27", 1),
+    "SLH_DSA_PURE_SHAKE_128F": ("2.16.840.1.101.3.4.3.27", 1),
+    "SLH-DSA-SHAKE-192s": ("2.16.840.1.101.3.4.3.28", 3),
+    "SLH_DSA_PURE_SHAKE_192S": ("2.16.840.1.101.3.4.3.28", 3),
+    "SLH-DSA-SHAKE-192f": ("2.16.840.1.101.3.4.3.29", 3),
+    "SLH_DSA_PURE_SHAKE_192F": ("2.16.840.1.101.3.4.3.29", 3),
+    "SLH-DSA-SHAKE-256s": ("2.16.840.1.101.3.4.3.30", 5),
+    "SLH_DSA_PURE_SHAKE_256S": ("2.16.840.1.101.3.4.3.30", 5),
+    "SLH-DSA-SHAKE-256f": ("2.16.840.1.101.3.4.3.31", 5),
+    "SLH_DSA_PURE_SHAKE_256F": ("2.16.840.1.101.3.4.3.31", 5),
     "X25519": ("1.3.101.110", 0),
     "AES-256-GCM": ("2.16.840.1.101.3.4.1.46", 5),
     "HKDF-SHA384": ("2.16.840.1.101.3.4.2.2", 5),
@@ -112,23 +135,31 @@ def _zero_bytearray(buf: bytearray) -> None:
         buf[idx] = 0
 
 
-def _atomic_write_secret(path: Path, content: bytes) -> None:
-    """Write sensitive key material atomically with strict 0o600 permissions."""
+def _atomic_write_file(
+    path: Path, content: bytes, mode: int, parent_mode: int | None = None
+) -> None:
+    """Write a file atomically with explicit permissions and fsync durability."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    os.chmod(path.parent, 0o700)
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".qaegis-key-")
+    if parent_mode is not None:
+        os.chmod(path.parent, parent_mode)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".qaegis-tmp-")
     try:
-        os.fchmod(fd, 0o600)
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "wb") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)
-        os.chmod(path, 0o600)
+        os.chmod(path, mode)
     except Exception:
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
         raise
+
+
+def _atomic_write_secret(path: Path, content: bytes) -> None:
+    """Write sensitive key material atomically with strict 0o600 permissions."""
+    _atomic_write_file(path, content, mode=0o600, parent_mode=0o700)
 
 
 class PublicIdentityBundle(BaseModel):
@@ -211,9 +242,22 @@ class DeviceIdentity:
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
         )
+        self._zeroized = False
+
+    def _ensure_active(self) -> None:
+        if self._zeroized:
+            raise RuntimeError(
+                f"DeviceIdentity '{self.key_id}' secrets have been zeroized upon retirement"
+            )
+
+    @property
+    def is_zeroized(self) -> bool:
+        """Return True if this identity's private key buffers have been zeroized."""
+        return self._zeroized
 
     @property
     def x25519_private(self) -> X25519PrivateKey:
+        self._ensure_active()
         return self._x25519_private
 
     @property
@@ -237,9 +281,11 @@ class DeviceIdentity:
         _zero_bytearray(self._primary_sig_secret)
         _zero_bytearray(self._fallback_sig_secret)
         _zero_bytearray(self._kem_secret)
+        self._zeroized = True
 
     def sign(self, message: bytes, use_fallback: bool = False) -> tuple[str, bytes]:
         """Sign `message` using ML-DSA (primary) or SLH-DSA (fallback)."""
+        self._ensure_active()
         alg = self.fallback_sig_alg if use_fallback else self.primary_sig_alg
         secret = bytes(self._fallback_sig_secret if use_fallback else self._primary_sig_secret)
         with oqs.Signature(alg, secret_key=secret) as signer:
@@ -256,6 +302,7 @@ class DeviceIdentity:
 
     def decap_kem(self, ciphertext: bytes) -> bytes:
         """Decapsulate a post-quantum ML-KEM shared secret."""
+        self._ensure_active()
         with oqs.KeyEncapsulation(self.kem_alg, secret_key=bytes(self._kem_secret)) as kem:
             shared: bytes = kem.decap_secret(ciphertext)
         return shared
@@ -411,13 +458,11 @@ class IdentityManager:
         return orjson.dumps(secret_doc, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS)
 
     def _write_public_bundle(self, identity: DeviceIdentity) -> None:
-        self._keys_dir.mkdir(parents=True, exist_ok=True)
         pub_bytes = orjson.dumps(
             identity.public_bundle().model_dump(mode="json"),
             option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
         )
-        self.public_path.write_bytes(pub_bytes)
-        os.chmod(self.public_path, 0o644)
+        _atomic_write_file(self.public_path, pub_bytes, mode=0o644)
 
     @staticmethod
     def _deserialize_secret_bytes(raw_bytes: bytes) -> DeviceIdentity:
@@ -518,11 +563,19 @@ class IdentityManager:
         plaintext = sealer.unseal(blob)
         return self._deserialize_secret_bytes(plaintext)
 
-    def load_or_create(self) -> DeviceIdentity:
-        """Load the existing device identity if present, or generate a new one."""
+    def load_or_create(self, sealer: HardwareSealer | None = None) -> DeviceIdentity:
+        """Load the existing device identity (unsealing if needed), or generate a new one."""
         if self.secret_path.is_file():
             return self.load()
+        if sealer is not None and self.sealed_path.is_file():
+            return self.load_sealed(sealer)
         return self.generate()
+
+    def load_active(self, sealer: HardwareSealer | None = None) -> DeviceIdentity:
+        """Load the active device identity, preferring sealed storage when `sealer` is given."""
+        if sealer is not None and self.sealed_path.is_file():
+            return self.load_sealed(sealer)
+        return self.load()
 
     def load(self) -> DeviceIdentity:
         """Load the persisted device identity after enforcing strict file permissions."""
@@ -539,6 +592,7 @@ class IdentityManager:
         self,
         sealer: HardwareSealer | None = None,
         metrics: QAegisMetrics | None = None,
+        remove_plaintext_secret: bool = False,
     ) -> tuple[DeviceIdentity, TrustKeyring]:
         """Perform zero-downtime PQC key rotation while preserving historical verification keys.
 
@@ -559,11 +613,13 @@ class IdentityManager:
                 f"archived_v{previous.key_version}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
                 ".public.json"
             )
-            (self._keys_dir / archive_name).write_bytes(
+            _atomic_write_file(
+                self._keys_dir / archive_name,
                 orjson.dumps(
                     retired_bundle.model_dump(mode="json"),
                     option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
-                )
+                ),
+                mode=0o644,
             )
         elif self.public_path.is_file():
             prev_pub = PublicIdentityBundle.model_validate(
@@ -578,7 +634,11 @@ class IdentityManager:
             retired_previous=retired_bundle,
         )
         if sealer is not None:
-            self.seal_identity(new_identity, sealer, remove_plaintext_secret=False)
+            self.seal_identity(
+                new_identity,
+                sealer,
+                remove_plaintext_secret=remove_plaintext_secret,
+            )
 
         if metrics is not None:
             metrics.identity_key_rotations.labels(node_id=self._node_id).inc()
@@ -717,7 +777,7 @@ class IdentityManager:
                         {
                             "type": "application",
                             "name": "qaegis",
-                            "version": "0.4.0",
+                            "version": __version__,
                         }
                     ]
                 },

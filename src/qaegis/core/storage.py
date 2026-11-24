@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -152,6 +153,14 @@ class StorageEngine:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._conn: aiosqlite.Connection | None = None
+        self._tx_lock = asyncio.Lock()
+
+    async def __aenter__(self) -> StorageEngine:
+        await self.initialize()
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.close()
 
     @property
     def db_path(self) -> Path:
@@ -183,15 +192,16 @@ class StorageEngine:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[aiosqlite.Connection]:
-        """Provide an explicit atomic SQLite transaction context."""
+        """Provide an explicit serialized atomic SQLite transaction context."""
         conn = self._require_conn()
-        await conn.execute("BEGIN IMMEDIATE;")
-        try:
-            yield conn
-            await conn.commit()
-        except Exception:
-            await conn.rollback()
-            raise
+        async with self._tx_lock:
+            await conn.execute("BEGIN IMMEDIATE;")
+            try:
+                yield conn
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
     async def _apply_migrations(self) -> None:
         conn = self._require_conn()
@@ -307,7 +317,7 @@ class StorageEngine:
         """Persist a signed Proof-of-Reality Merkle leaf and return its 0-based index."""
         now_iso = datetime.now(UTC).isoformat()
         async with self.transaction() as conn:
-            cursor = await conn.execute(
+            await conn.execute(
                 """
                 INSERT INTO merkle_leaves (
                     stamp_id, created_at, leaf_hash, algorithm,
@@ -324,8 +334,10 @@ class StorageEngine:
                     public_key_fingerprint,
                 ),
             )
-            rowid = int(cursor.lastrowid or 1)
-        return rowid - 1
+            count_cur = await conn.execute("SELECT COUNT(*) AS cnt FROM merkle_leaves;")
+            count_row = await count_cur.fetchone()
+            total_leaves = int(count_row["cnt"]) if count_row is not None else 1
+        return total_leaves - 1
 
     async def list_merkle_leaf_hashes(self) -> list[str]:
         """Return all persisted Merkle leaf hex hashes ordered by insertion."""
@@ -570,6 +582,45 @@ class StorageEngine:
         )
         row = await cursor.fetchone()
         return dict(row) if row is not None else None
+
+    async def verify_dream_problem_integrity(self) -> tuple[bool, int]:
+        """Recompute and verify `row_hash` integrity digests across `dream_problems`."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT problem_id, priority, problem_type, qubo_json, row_hash
+            FROM dream_problems
+            ORDER BY created_at ASC;
+            """
+        )
+        rows = list(await cursor.fetchall())
+        for row in rows:
+            expected = _sha256_hex(
+                f"{row['problem_id']}|{row['priority']}|{row['problem_type']}|{row['qubo_json']}".encode()
+            )
+            if expected != str(row["row_hash"]):
+                return (False, len(rows))
+        return (True, len(rows))
+
+    async def verify_policy_snapshots(self) -> tuple[bool, int]:
+        """Recompute and verify `snapshot_hash` integrity digests across `policy_snapshots`."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT policy_name, weights_json, validation_score, created_at, snapshot_hash
+            FROM policy_snapshots
+            ORDER BY version ASC;
+            """
+        )
+        rows = list(await cursor.fetchall())
+        for row in rows:
+            expected = _sha256_hex(
+                f"{row['policy_name']}|{row['weights_json']}|"
+                f"{float(row['validation_score']):.8f}|{row['created_at']}".encode()
+            )
+            if expected != str(row["snapshot_hash"]):
+                return (False, len(rows))
+        return (True, len(rows))
 
     async def list_gossip_checkpoints(
         self,

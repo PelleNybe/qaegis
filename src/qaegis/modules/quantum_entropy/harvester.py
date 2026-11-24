@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import struct
+import threading
 
 import numpy as np
+from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
@@ -39,22 +42,28 @@ class QuantumEntropyPool:
         self._state = initial_bytes
         self._cursor = 0
         self._reseed_counter = 0
+        self._lock = threading.Lock()
 
     def next_bytes(self, n: int) -> bytes:
         """Consume `n` bytes, stretching via SHAKE-256 domain-separated rekeying when depleted."""
-        out = bytearray()
-        while len(out) < n:
-            if self._cursor >= len(self._state):
-                self._reseed_counter += 1
-                shake = hashlib.shake_256(
-                    self._state + struct.pack(">Q", self._reseed_counter) + b"qaegis-qpool"
-                )
-                self._state = shake.digest(max(len(self._state), 256))
-                self._cursor = 0
-            take = min(n - len(out), len(self._state) - self._cursor)
-            out.extend(self._state[self._cursor : self._cursor + take])
-            self._cursor += take
-        return bytes(out)
+        if n < 0:
+            raise ValueError(f"Requested byte count must be non-negative, got {n}")
+        if n == 0:
+            return b""
+        with self._lock:
+            out = bytearray()
+            while len(out) < n:
+                if self._cursor >= len(self._state):
+                    self._reseed_counter += 1
+                    shake = hashlib.shake_256(
+                        self._state + struct.pack(">Q", self._reseed_counter) + b"qaegis-qpool"
+                    )
+                    self._state = shake.digest(max(len(self._state), 256))
+                    self._cursor = 0
+                take = min(n - len(out), len(self._state) - self._cursor)
+                out.extend(self._state[self._cursor : self._cursor + take])
+                self._cursor += take
+            return bytes(out)
 
     def next_uint32(self) -> int:
         """Return an unbiased 32-bit unsigned integer from the quantum pool."""
@@ -72,6 +81,25 @@ class QuantumEntropyPool:
         u2 = self.next_uniform()
         return float(math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2))
 
+    def next_gaussians(self, count: int) -> NDArray[np.float64]:
+        """Return `count` vectorized N(0, 1) samples drawn from the quantum pool."""
+        if count < 0:
+            raise ValueError(f"count must be non-negative, got {count}")
+        if count == 0:
+            return np.empty(0, dtype=np.float64)
+        pairs = (count + 1) // 2
+        raw = np.frombuffer(self.next_bytes(pairs * 16), dtype=">u8").reshape(pairs, 2)
+        u1 = np.maximum((raw[:, 0] >> 11).astype(np.float64) * (2.0**-53), 1e-12)
+        u2 = (raw[:, 1] >> 11).astype(np.float64) * (2.0**-53)
+        radius = np.sqrt(-2.0 * np.log(u1))
+        theta = 2.0 * np.pi * u2
+        z0 = radius * np.cos(theta)
+        z1 = radius * np.sin(theta)
+        combined = np.empty(pairs * 2, dtype=np.float64)
+        combined[0::2] = z0
+        combined[1::2] = z1
+        return combined[:count]
+
 
 class QuantumDistributionHarvester:
     """Executes entangled Qiskit circuits and XOR-mixes outcomes with NIST-verified QRNG."""
@@ -88,6 +116,34 @@ class QuantumDistributionHarvester:
             config=RealityStampConfig(strict_nist_checks=False),
             metrics=self._metrics,
         )
+        self._sim_cache: dict[float, AerSimulator] = {}
+
+    def _get_simulator(self, noise_rate: float) -> AerSimulator:
+        key = round(max(0.0, noise_rate), 6)
+        sim = self._sim_cache.get(key)
+        if sim is None:
+            if key > 0.0:
+                nm = NoiseModel()
+                nm.add_all_qubit_quantum_error(depolarizing_error(min(key, 0.25), 1), ["h", "ry"])
+                nm.add_all_qubit_quantum_error(depolarizing_error(min(key * 2.0, 0.4), 2), ["cx"])
+                sim = AerSimulator(noise_model=nm)
+            else:
+                sim = AerSimulator()
+            self._sim_cache[key] = sim
+        return sim
+
+    def _run_circuit_sync(
+        self,
+        num_qubits: int,
+        shots: int,
+        noise_rate: float,
+        phase_bias: float,
+    ) -> tuple[dict[str, int], list[str]]:
+        sim = self._get_simulator(noise_rate)
+        qc = self._build_entangled_circuit(num_qubits, phase_bias=phase_bias)
+        tqc = transpile(qc, sim, optimization_level=1)
+        result = sim.run(tqc, shots=shots, memory=True).result()
+        return dict(result.get_counts()), list(result.get_memory())
 
     def _build_entangled_circuit(self, num_qubits: int, phase_bias: float = 0.0) -> QuantumCircuit:
         qc = QuantumCircuit(num_qubits, num_qubits)
@@ -115,23 +171,13 @@ class QuantumDistributionHarvester:
         num_shots = shots or self._config.harvester_shots
         pool_size = self._config.pool_min_bytes
 
-        if noise_rate > 0.0:
-            nm = NoiseModel()
-            nm.add_all_qubit_quantum_error(
-                depolarizing_error(min(noise_rate, 0.25), 1), ["h", "ry"]
-            )
-            nm.add_all_qubit_quantum_error(
-                depolarizing_error(min(noise_rate * 2.0, 0.4), 2), ["cx"]
-            )
-            sim = AerSimulator(noise_model=nm)
-        else:
-            sim = AerSimulator()
-
-        qc = self._build_entangled_circuit(n, phase_bias=phase_bias)
-        tqc = transpile(qc, sim, optimization_level=1)
-        result = sim.run(tqc, shots=num_shots, memory=True).result()
-        counts: dict[str, int] = dict(result.get_counts())
-        memory: list[str] = list(result.get_memory())
+        counts, memory = await asyncio.to_thread(
+            self._run_circuit_sync,
+            n,
+            num_shots,
+            noise_rate,
+            phase_bias,
+        )
 
         total = float(sum(counts.values()))
         probs = {bs: float(c) / total for bs, c in counts.items()}

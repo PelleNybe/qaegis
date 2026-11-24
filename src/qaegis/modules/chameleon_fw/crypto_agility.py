@@ -7,6 +7,7 @@ import hashlib
 import os
 import time
 import uuid
+from collections import deque
 from datetime import UTC, datetime
 
 import oqs
@@ -21,6 +22,8 @@ from qaegis.core.config import ChameleonConfig
 from qaegis.core.identity import (
     DeviceIdentity,
     PublicIdentityBundle,
+    TrustKeyring,
+    constant_time_equal,
     resolve_oqs_kem_algorithm,
 )
 from qaegis.core.telemetry import QAegisMetrics
@@ -105,12 +108,18 @@ class CryptoAgilityEngine:
         identity: DeviceIdentity,
         config: ChameleonConfig | None = None,
         metrics: QAegisMetrics | None = None,
+        enable_replay_protection: bool = True,
+        replay_cache_size: int = 8192,
     ) -> None:
         self._identity = identity
         self._config = config or ChameleonConfig()
         self._metrics = metrics or QAegisMetrics()
         self._session_epoch = 0
         self._message_counter = 0
+        self._enable_replay_protection = enable_replay_protection
+        self._replay_cache_size = replay_cache_size
+        self._seen_envelopes: set[str] = set()
+        self._seen_envelope_order: deque[str] = deque()
 
     @property
     def session_epoch(self) -> int:
@@ -216,25 +225,63 @@ class CryptoAgilityEngine:
         ).observe(elapsed)
         return envelope
 
+    def _check_and_record_replay(self, envelope: EncryptedEnvelope) -> None:
+        replay_token = (
+            f"{envelope.sender_node_id}|{envelope.envelope_id}|"
+            f"{envelope.session_epoch}|{envelope.message_counter}"
+        )
+        if replay_token in self._seen_envelopes:
+            raise ValueError(
+                f"Replay attack detected: duplicate Chameleon envelope '{envelope.envelope_id}'"
+            )
+        self._seen_envelopes.add(replay_token)
+        self._seen_envelope_order.append(replay_token)
+        while len(self._seen_envelope_order) > self._replay_cache_size:
+            evicted = self._seen_envelope_order.popleft()
+            self._seen_envelopes.discard(evicted)
+
     def decrypt(
         self,
         envelope: EncryptedEnvelope,
         expected_sender: PublicIdentityBundle | None = None,
+        expected_sender_keyring: TrustKeyring | None = None,
+        verify_recipient: bool = True,
+        allow_replay: bool = False,
     ) -> bytes:
         """Verify (if signed) and decrypt an `EncryptedEnvelope` using this node's identity."""
         start = time.perf_counter()
+
+        expected_suite = CIPHER_SUITES[envelope.tier]
+        if envelope.cipher_suite != expected_suite:
+            raise ValueError(
+                f"Cipher suite mismatch for tier {envelope.tier.value}: "
+                f"expected '{expected_suite}', got '{envelope.cipher_suite}'"
+            )
+
+        if verify_recipient and envelope.recipient_node_id != self._identity.node_id:
+            raise ValueError(
+                f"Envelope addressed to '{envelope.recipient_node_id}', "
+                f"not local node '{self._identity.node_id}'"
+            )
 
         if envelope.tier == ThreatTier.QUANTUM_CRITICAL:
             if not (envelope.sig_alg and envelope.signature_b64 and envelope.sender_sig_pub_b64):
                 raise ValueError("QUANTUM_CRITICAL envelope is missing mandatory PQC signature")
             sig_bytes = base64.b64decode(envelope.signature_b64)
             sig_pub = base64.b64decode(envelope.sender_sig_pub_b64)
-            if expected_sender is not None:
-                allowed_pubs = {
-                    base64.b64decode(expected_sender.primary_sig_public_b64),
-                    base64.b64decode(expected_sender.fallback_sig_public_b64),
-                }
-                if sig_pub not in allowed_pubs:
+            sender_bundle = expected_sender
+            if sender_bundle is None and expected_sender_keyring is not None:
+                sender_bundle = expected_sender_keyring.get_by_key_id(envelope.sender_key_id)
+                if sender_bundle is None:
+                    raise ValueError(
+                        f"Sender key ID '{envelope.sender_key_id}' not found in trusted keyring"
+                    )
+            if sender_bundle is not None:
+                allowed_pubs = (
+                    base64.b64decode(sender_bundle.primary_sig_public_b64),
+                    base64.b64decode(sender_bundle.fallback_sig_public_b64),
+                )
+                if not any(constant_time_equal(sig_pub, allowed) for allowed in allowed_pubs):
                     raise ValueError("Envelope signature public key does not match expected sender")
             if not DeviceIdentity.verify(
                 envelope.signing_transcript(),
@@ -279,6 +326,10 @@ class CryptoAgilityEngine:
         )
         ciphertext = base64.b64decode(envelope.ciphertext_b64)
         plaintext = AESGCM(aead_key).decrypt(nonce, ciphertext, bound_aad)
+
+        # Record replay token only after full AEAD authentication succeeds
+        if self._enable_replay_protection and not allow_replay:
+            self._check_and_record_replay(envelope)
 
         elapsed = time.perf_counter() - start
         self._metrics.crypto_op_latency_seconds.labels(

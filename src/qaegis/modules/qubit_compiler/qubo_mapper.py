@@ -160,6 +160,8 @@ def build_task_scheduling_qubo(
 
     # Pairwise conflict penalties
     for u, v in conflicts:
+        if u == v or u < 0 or v < 0 or u >= n or v >= n:
+            raise ValueError(f"Invalid conflict pair ({u}, {v}) for {n} tasks")
         i, j = (u, v) if u < v else (v, u)
         q_mat[i, j] += penalty * 2.0
 

@@ -5,6 +5,22 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-24
+
+### Security
+- **Merkle Proof-to-Stamp Binding (`qaegis.modules.reality_stamp`):** Added canonical `compute_stamp_leaf_hash()` verification inside `verify_reality_stamp()` to prevent Merkle inclusion proof grafting / substitution attacks.
+- **Quantum Chameleon Hardening (`qaegis.modules.chameleon_fw`):** Added bounded authenticated replay-attack protection, constant-time sender public-key verification, cipher-suite header enforcement, recipient node binding, and `TrustKeyring` support across sender key rotations.
+- **Identity & Hardware Seal Hygiene (`qaegis.core.identity`, `qaegis.core.hardware_seal`):** Guarded retired `DeviceIdentity` instances against post-zeroization signing/decapsulation, made public bundle and archive writes atomic, securely overwrote temporary TPM 2.0 DEK files before unlink, expanded NIST FIPS 205 SLH-DSA OID mappings, added `IdentityManager.load_active(sealer=...)` and `--remove-plaintext` on `qaegis rotate-keys`, and removed hardcoded default PIN from `qaegis seal-identity`.
+- **Federated & Gossip Trust Hardening:** Added `TrustKeyring` verification and target-node binding to `quantum_dreamer.federated`, restart hydration (`hydrate_from_storage()`) and peer keyring verification to `MerkleGossipNode`, and CI `softhsm2` provisioning for real PKCS#11 testing in GitHub Actions.
+
+### Performance
+- **11x–16x Faster QAOA Optimization (`qaegis.modules.quantum_dreamer.solvers`):** Replaced per-iteration QAOA transpilation with cached parameterized Qiskit `ParameterVector` circuits (`build_parameterized_qaoa_circuit`), reducing 4q/6q Max-Cut statevector solves from `4.71 s` / `5.31 s` down to `0.43 s` / `0.32 s` (1.0000 approximation ratio) and reusing `ErrorMitigationPipeline` TREX calibration across solves.
+- **Batched ZNE/TREX & Vectorized Entropy:** Batched Pauli-X readout-twirled circuits into single `AerSimulator.run(...)` calls, vectorized `xor_mix_streams()` and `QuantumEntropyPool.next_gaussians()` in NumPy, and offloaded Qiskit QRNG/harvester execution to worker threads (`asyncio.to_thread`).
+
+### Fixed & Improved
+- **Concurrency & Reliability:** Serialized `StorageEngine.transaction()` with `asyncio.Lock`, serialized Merkle leaf anchoring with `RealityStampService._merkle_lock`, added `EventBus` ZMQ loopback event-ID deduplication and `destroy(linger=0)` teardown, isolated failing `LifecycleManager` hooks via `lifecycle.hook_error` events, and added `verify_dream_problem_integrity()` / `verify_policy_snapshots()` into `qaegis doctor`.
+- **Self-Contained ONNX Export & Config Validation:** Fused training `(mean, std)` standardization directly into exported `AngleEncoderPipeline` ONNX graphs, added JSON list/dict env-var parsing and cross-field Pydantic validators in `core.config`, added `resource_allocation` QUBO RPC in `QubitCompilerService`, and hardened `AsyncMqttBridge` disconnect ordering and error logging.
+
 ## [0.4.0] - 2026-11-24
 
 ### Added

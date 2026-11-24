@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -85,6 +86,14 @@ class ChameleonConfig(BaseModel):
     kem_alg: str = "ML-KEM-768"
     sig_alg: str = "ML-DSA-65"
 
+    @model_validator(mode="after")
+    def _validate_thresholds(self) -> ChameleonConfig:
+        if self.elevated_risk_threshold >= self.critical_risk_threshold:
+            raise ValueError(
+                "elevated_risk_threshold must be strictly less than critical_risk_threshold"
+            )
+        return self
+
 
 class QubitCompilerConfig(BaseModel):
     """Configuration for Module 3: AI-to-Qubit Compiler."""
@@ -114,6 +123,16 @@ class QuantumDreamerConfig(BaseModel):
     zne_scale_factors: list[int] = Field(default_factory=lambda: [1, 3, 5])
     zne_extrapolation: Literal["linear", "richardson", "exponential"] = "richardson"
     max_qpu_seconds_per_night: float = Field(default=300.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def _validate_zne_scale_factors(self) -> QuantumDreamerConfig:
+        if any(s < 1 or s % 2 == 0 for s in self.zne_scale_factors):
+            raise ValueError("zne_scale_factors must contain only odd positive integers")
+        if len(set(self.zne_scale_factors)) != len(self.zne_scale_factors):
+            raise ValueError("zne_scale_factors must contain unique values")
+        if self.mitigation_mode in ("zne", "both") and len(self.zne_scale_factors) < 2:
+            raise ValueError("ZNE mitigation requires at least 2 distinct odd scale factors")
+        return self
 
 
 class QuantumEntropyConfig(BaseModel):
@@ -221,7 +240,14 @@ def load_config(
             cursor = env_overrides
             for part in parts[:-1]:
                 cursor = cursor.setdefault(part, {})
-            cursor[parts[-1]] = env_val
+            parsed_val: Any = env_val
+            stripped = env_val.strip()
+            if stripped.startswith(("[", "{")):
+                try:
+                    parsed_val = json.loads(stripped)
+                except json.JSONDecodeError:
+                    parsed_val = env_val
+            cursor[parts[-1]] = parsed_val
         if env_overrides:
             merged = _deep_merge(base_from_yaml.model_dump(mode="python"), env_overrides)
             if overrides:

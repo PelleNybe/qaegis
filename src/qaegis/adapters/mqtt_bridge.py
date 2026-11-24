@@ -44,6 +44,7 @@ class AsyncMqttBridge:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._subscriptions: list[Subscription] = []
         self._connected = False
+        self._outbound_dropped = 0
         self._client = mqtt.Client(
             callback_api_version=CallbackAPIVersion.VERSION2,
             client_id=self._config.client_id,
@@ -60,6 +61,11 @@ class AsyncMqttBridge:
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    @property
+    def outbound_dropped_count(self) -> int:
+        """Return count of outbound EventBus events skipped while broker was disconnected."""
+        return self._outbound_dropped
 
     def map_bus_to_mqtt_topic(self, bus_topic: str) -> str:
         """Convert a dot-separated EventBus topic into a slash-separated MQTT topic."""
@@ -108,8 +114,8 @@ class AsyncMqttBridge:
         for sub in self._subscriptions:
             await self._bus.unsubscribe(sub)
         self._subscriptions.clear()
-        self._client.loop_stop()
         self._client.disconnect()
+        self._client.loop_stop()
         self._connected = False
         logger.info("mqtt_bridge_stopped")
 
@@ -117,6 +123,8 @@ class AsyncMqttBridge:
         topic, data = self.encode_envelope_for_mqtt(envelope)
         if self._connected:
             self._client.publish(topic, payload=data, qos=self._config.qos)
+        else:
+            self._outbound_dropped += 1
 
     def _on_connect(
         self,
@@ -152,7 +160,14 @@ class AsyncMqttBridge:
     ) -> None:
         del client, userdata
         if self._loop is not None and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(
+            fut = asyncio.run_coroutine_threadsafe(
                 self.ingest_mqtt_payload(msg.topic, bytes(msg.payload)),
                 self._loop,
             )
+
+            def _log_error(done: Any) -> None:
+                exc = done.exception()
+                if exc is not None:
+                    logger.error("mqtt_ingest_failed", topic=msg.topic, error=str(exc))
+
+            fut.add_done_callback(_log_error)

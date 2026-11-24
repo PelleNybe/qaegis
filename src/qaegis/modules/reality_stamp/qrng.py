@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import math
 import os
 from abc import ABC, abstractmethod
 
 import httpx
+import numpy as np
 from pydantic import BaseModel
 from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
@@ -82,7 +84,7 @@ class QiskitHadamardQrngSource(EntropySource):
     def name(self) -> str:
         return f"qiskit_hadamard_{self._num_qubits}q"
 
-    async def fetch_bytes(self, num_bytes: int) -> bytes:
+    def _sample_sync(self, num_bytes: int) -> bytes:
         total_bits = num_bytes * 8
         shots = math.ceil(total_bits / self._num_qubits)
         job = self._simulator.run(self._compiled_circuit, shots=shots, memory=True)
@@ -93,43 +95,53 @@ class QiskitHadamardQrngSource(EntropySource):
             out[i] = int(joined[i * 8 : (i + 1) * 8], 2)
         return bytes(out)
 
+    async def fetch_bytes(self, num_bytes: int) -> bytes:
+        return await asyncio.to_thread(self._sample_sync, num_bytes)
+
 
 class HttpQrngSource(EntropySource):
     """Network QRNG source supporting ANU-style JSON responses or raw binary endpoints."""
 
-    def __init__(self, endpoint_url: str, timeout_s: float = 3.0) -> None:
+    def __init__(
+        self,
+        endpoint_url: str,
+        timeout_s: float = 3.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._url = endpoint_url
         self._timeout_s = timeout_s
+        self._external_client = client
 
     @property
     def name(self) -> str:
         return f"http_qrng:{self._url}"
 
     async def fetch_bytes(self, num_bytes: int) -> bytes:
-        async with httpx.AsyncClient(timeout=self._timeout_s) as client:
-            resp = await client.get(
-                self._url,
-                params={"length": num_bytes, "type": "uint8"},
+        params: dict[str, int | str] = {"length": num_bytes, "type": "uint8"}
+        if self._external_client is not None:
+            resp = await self._external_client.get(self._url, params=params)
+        else:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.get(self._url, params=params)
+        resp.raise_for_status()
+        content_type = resp.headers.get("content-type", "")
+        if "application/json" in content_type:
+            body = resp.json()
+            data = body.get("data")
+            if isinstance(data, list) and data:
+                if len(data) >= num_bytes and all(isinstance(v, int) for v in data[:num_bytes]):
+                    return bytes(int(v) & 0xFF for v in data[:num_bytes])
+                if all(isinstance(v, str) for v in data):
+                    raw = bytes.fromhex("".join(str(v) for v in data))
+                    if len(raw) >= num_bytes:
+                        return raw[:num_bytes]
+            raise ValueError("Unexpected JSON format from HTTP QRNG endpoint")
+        raw_bytes = resp.content
+        if len(raw_bytes) < num_bytes:
+            raise ValueError(
+                f"HTTP QRNG returned {len(raw_bytes)} bytes, expected at least {num_bytes}"
             )
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
-            if "application/json" in content_type:
-                body = resp.json()
-                data = body.get("data")
-                if isinstance(data, list) and len(data) >= num_bytes:
-                    if all(isinstance(v, int) for v in data[:num_bytes]):
-                        return bytes(int(v) & 0xFF for v in data[:num_bytes])
-                    if all(isinstance(v, str) for v in data):
-                        raw = bytes.fromhex("".join(str(v) for v in data))
-                        if len(raw) >= num_bytes:
-                            return raw[:num_bytes]
-                raise ValueError("Unexpected JSON format from HTTP QRNG endpoint")
-            raw_bytes = resp.content
-            if len(raw_bytes) < num_bytes:
-                raise ValueError(
-                    f"HTTP QRNG returned {len(raw_bytes)} bytes, expected at least {num_bytes}"
-                )
-            return raw_bytes[:num_bytes]
+        return raw_bytes[:num_bytes]
 
 
 def xor_mix_streams(streams: list[bytes]) -> bytes:
@@ -146,11 +158,12 @@ def xor_mix_streams(streams: list[bytes]) -> bytes:
     for s in streams[1:]:
         if len(s) != length:
             raise ValueError("All entropy streams must have identical byte lengths")
-    mixed = bytearray(streams[0])
+    if len(streams) == 1:
+        return streams[0]
+    acc = np.frombuffer(streams[0], dtype=np.uint8).copy()
     for stream in streams[1:]:
-        for i in range(length):
-            mixed[i] ^= stream[i]
-    return bytes(mixed)
+        acc ^= np.frombuffer(stream, dtype=np.uint8)
+    return acc.tobytes()
 
 
 class MultiSourceQrng:

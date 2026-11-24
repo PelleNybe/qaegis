@@ -9,7 +9,6 @@ import numpy as np
 import pennylane as qml
 from pydantic import BaseModel, Field
 from qiskit import QuantumCircuit, qasm3, transpile
-from qiskit_aer import AerSimulator
 
 from qaegis.modules.qubit_compiler.autoencoder import QuantumAnglePayload
 
@@ -54,7 +53,6 @@ class NoiseAwareCircuitBuilder:
 
     def __init__(self, noise_profile: BackendNoiseProfile | None = None) -> None:
         self._profile = noise_profile or BackendNoiseProfile()
-        self._simulator = AerSimulator()
 
     def build_qiskit_circuit(
         self,
@@ -63,7 +61,11 @@ class NoiseAwareCircuitBuilder:
         measure: bool = True,
     ) -> tuple[QuantumCircuit, CompiledCircuitArtifact]:
         """Construct and transpile a noise-aware Qiskit circuit and export OpenQASM 3.0."""
+        if entangling_layers < 1:
+            raise ValueError("entangling_layers must be >= 1")
         n = payload.num_qubits
+        if len(payload.angles_rad) != n:
+            raise ValueError(f"Expected {n} qubit angle triplets, got {len(payload.angles_rad)}")
         qc = QuantumCircuit(n, n if measure else 0)
 
         # Select entanglement strategy based on two-qubit gate error to minimize SWAP overhead

@@ -54,8 +54,9 @@ def fold_circuit_unitary(qc: QuantumCircuit, scale_factor: int) -> QuantumCircui
     unitary = strip_measurements(qc)
     n = unitary.num_qubits
     if scale_factor == 1:
-        folded = unitary.copy()
-        folded.measure_all()
+        folded = QuantumCircuit(n, n)
+        folded.compose(unitary, inplace=True)
+        folded.measure(range(n), range(n))
         return folded
 
     inv_unitary = unitary.inverse()
@@ -81,6 +82,8 @@ def extrapolate_zero_noise(
     """Extrapolate noisy expectation values E(s) to the zero-noise limit E(0)."""
     if len(scale_factors) != len(values) or len(values) < 2:
         raise ValueError("Zero-noise extrapolation requires at least 2 (scale, value) points")
+    if len(set(scale_factors)) != len(scale_factors):
+        raise ValueError("Zero-noise extrapolation requires distinct scale_factors")
 
     xs = np.asarray(scale_factors, dtype=np.float64)
     ys = np.asarray(values, dtype=np.float64)
@@ -172,20 +175,24 @@ def calibrate_trex_factors(
     """Estimate per-qubit TREX diagonal readout calibration factors lambda_q = <Z_q>_twirled."""
     rng = np.random.default_rng(seed)
     z_accum = np.zeros(num_qubits, dtype=np.float64)
+    masks: list[np.ndarray] = []
+    circuits: list[QuantumCircuit] = []
 
-    for t_idx in range(num_twirls):
+    for _t_idx in range(num_twirls):
         mask = rng.integers(0, 2, size=num_qubits)
+        masks.append(mask)
         qc = QuantumCircuit(num_qubits, num_qubits)
         for q in range(num_qubits):
             if mask[q] == 1:
                 qc.x(q)
         qc.measure(range(num_qubits), range(num_qubits))
-        tqc = transpile(qc, simulator, optimization_level=0)
-        counts: dict[str, int] = dict(
-            simulator.run(tqc, shots=shots_per_twirl, seed_simulator=seed + t_idx)
-            .result()
-            .get_counts()
-        )
+        circuits.append(qc)
+
+    tqcs = transpile(circuits, simulator, optimization_level=0)
+    result = simulator.run(tqcs, shots=shots_per_twirl, seed_simulator=seed).result()
+
+    for t_idx, mask in enumerate(masks):
+        counts: dict[str, int] = dict(result.get_counts(t_idx))
         total = float(sum(counts.values()))
         for raw_key, cnt in counts.items():
             key = raw_key.replace(" ", "")[::-1]
@@ -206,14 +213,17 @@ def run_twirled_circuit_counts(
     num_twirls: int = 12,
     seed: int = 42,
 ) -> dict[str, int]:
-    """Execute Pauli-X readout-twirled copies of a circuit and return unmasked counts."""
+    """Execute Pauli-X readout-twirled circuit copies in one batch and return unmasked counts."""
     n = unitary_qc.num_qubits
     rng = np.random.default_rng(seed)
     shots_each = max(16, shots // num_twirls)
     combined_counts: dict[str, int] = {}
+    masks: list[np.ndarray] = []
+    circuits: list[QuantumCircuit] = []
 
-    for t_idx in range(num_twirls):
+    for _t_idx in range(num_twirls):
         mask = rng.integers(0, 2, size=n)
+        masks.append(mask)
         twirled = QuantumCircuit(n, n)
         twirled.compose(unitary_qc, inplace=True)
         twirled.barrier()
@@ -221,12 +231,13 @@ def run_twirled_circuit_counts(
             if mask[q] == 1:
                 twirled.x(q)
         twirled.measure(range(n), range(n))
-        tqc = transpile(twirled, simulator, optimization_level=0)
-        raw_counts: dict[str, int] = dict(
-            simulator.run(tqc, shots=shots_each, seed_simulator=seed + 100 + t_idx)
-            .result()
-            .get_counts()
-        )
+        circuits.append(twirled)
+
+    tqcs = transpile(circuits, simulator, optimization_level=0)
+    result = simulator.run(tqcs, shots=shots_each, seed_simulator=seed + 100).result()
+
+    for t_idx, mask in enumerate(masks):
+        raw_counts: dict[str, int] = dict(result.get_counts(t_idx))
         for raw_key, cnt in raw_counts.items():
             # Unmask in x_0..x_{n-1} order, then store back in Qiskit little-endian order
             bits = raw_key.replace(" ", "")[::-1]

@@ -19,7 +19,8 @@ from qaegis.modules.qubit_compiler.qubo_mapper import IsingHamiltonian
 
 logger = get_logger(__name__)
 
-_SINGLE_QUBIT_NO_PARAM = {"h", "x", "y", "z", "s", "t"}
+_SINGLE_QUBIT_NO_PARAM = {"h", "x", "y", "z", "s", "si", "t", "ti"}
+_QISKIT_TO_IONQ_1Q_ALIAS = {"sdg": "si", "tdg": "ti"}
 _SINGLE_QUBIT_ROT = {"rx", "ry", "rz"}
 
 
@@ -36,12 +37,19 @@ def qiskit_to_ionq_circuit(qc: QuantumCircuit) -> dict[str, Any]:
 
         if op_name in ("measure", "barrier"):
             continue
-        if op_name in _SINGLE_QUBIT_NO_PARAM:
-            gates.append({"gate": op_name, "target": q_indices[0]})
+        op_mapped = _QISKIT_TO_IONQ_1Q_ALIAS.get(op_name, op_name)
+        if op_mapped in _SINGLE_QUBIT_NO_PARAM:
+            gates.append({"gate": op_mapped, "target": q_indices[0]})
         elif op_name in _SINGLE_QUBIT_ROT:
             gates.append({"gate": op_name, "target": q_indices[0], "rotation": params[0]})
         elif op_name in ("cx", "cnot"):
             gates.append({"gate": "cnot", "control": q_indices[0], "target": q_indices[1]})
+        elif op_name == "cz":
+            gates.append({"gate": "h", "target": q_indices[1]})
+            gates.append({"gate": "cnot", "control": q_indices[0], "target": q_indices[1]})
+            gates.append({"gate": "h", "target": q_indices[1]})
+        elif op_name == "swap":
+            gates.append({"gate": "swap", "targets": [q_indices[0], q_indices[1]]})
         elif op_name == "rzz":
             # Exact decomposition: RZZ(theta) = CNOT(i, j) -> RZ(theta, j) -> CNOT(i, j)
             gates.append({"gate": "cnot", "control": q_indices[0], "target": q_indices[1]})
@@ -151,7 +159,9 @@ class IonQBackend(QuantumBackend):
                 status = str(job_info.get("status", "unknown"))
 
             if status != "completed":
-                raise RuntimeError(f"IonQ job {job_id} ended with status '{status}'")
+                failure_detail = job_info.get("failure")
+                suffix = f" ({failure_detail})" if failure_detail else ""
+                raise RuntimeError(f"IonQ job {job_id} ended with status '{status}'{suffix}")
 
             if isinstance(job_info.get("calibration"), dict):
                 self._last_calibration = dict(job_info["calibration"])

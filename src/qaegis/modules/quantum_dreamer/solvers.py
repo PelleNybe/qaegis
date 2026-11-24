@@ -10,6 +10,7 @@ from collections.abc import Callable
 import numpy as np
 from pydantic import BaseModel, Field
 from qiskit import QuantumCircuit, qasm3, transpile
+from qiskit.circuit import ParameterVector
 from qiskit_aer import AerSimulator
 from qiskit_aer.noise import NoiseModel, ReadoutError, depolarizing_error
 from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2
@@ -81,6 +82,51 @@ def build_qaoa_circuit(
     return qc
 
 
+def build_parameterized_qaoa_circuit(
+    hamiltonian: IsingHamiltonian,
+    reps: int,
+    measure: bool = True,
+) -> tuple[QuantumCircuit, ParameterVector, ParameterVector]:
+    """Construct a reusable parameterized QAOA circuit to avoid repeated transpilation."""
+    if reps < 1:
+        raise ValueError("QAOA reps must be >= 1")
+    n = hamiltonian.num_qubits
+    gammas = ParameterVector("gamma", reps)
+    betas = ParameterVector("beta", reps)
+    qc = QuantumCircuit(n, n if measure else 0)
+
+    for q in range(n):
+        qc.h(q)
+
+    for layer in range(reps):
+        gamma = gammas[layer]
+        beta = betas[layer]
+        for q, h_i in enumerate(hamiltonian.linear_h):
+            if abs(h_i) > 1e-12:
+                qc.rz(2.0 * h_i * gamma, q)
+        for c in hamiltonian.couplings:
+            if abs(c.weight) > 1e-12:
+                qc.rzz(2.0 * c.weight * gamma, c.i, c.j)
+        for q in range(n):
+            qc.rx(2.0 * beta, q)
+
+    if measure:
+        qc.measure(range(n), range(n))
+    return qc, gammas, betas
+
+
+def _hamiltonian_cache_key(
+    hamiltonian: IsingHamiltonian,
+    reps: int,
+) -> tuple[int, int, tuple[float, ...], tuple[tuple[int, int, float], ...]]:
+    return (
+        hamiltonian.num_qubits,
+        reps,
+        tuple(round(h, 12) for h in hamiltonian.linear_h),
+        tuple((c.i, c.j, round(c.weight, 12)) for c in hamiltonian.couplings),
+    )
+
+
 def _exact_qubo_ground_energy(problem: QuboProblem) -> tuple[float, float] | None:
     """Compute exact (min_energy, max_energy) by brute force for small verification instances."""
     n = problem.num_variables
@@ -118,14 +164,35 @@ class QuantumBackend(ABC):
 
 
 class AerStatevectorBackend(QuantumBackend):
-    """Exact noiseless Qiskit Aer statevector backend."""
+    """Exact noiseless Qiskit Aer statevector backend with parameterized circuit caching."""
 
     def __init__(self) -> None:
         self._sim = AerSimulator(method="statevector")
+        self._compiled_cache: dict[
+            tuple[int, int, tuple[float, ...], tuple[tuple[int, int, float], ...]],
+            tuple[QuantumCircuit, ParameterVector, ParameterVector],
+        ] = {}
 
     @property
     def name(self) -> str:
         return "aer_statevector"
+
+    def _get_compiled(
+        self,
+        hamiltonian: IsingHamiltonian,
+        reps: int,
+    ) -> tuple[QuantumCircuit, ParameterVector, ParameterVector]:
+        key = _hamiltonian_cache_key(hamiltonian, reps)
+        cached = self._compiled_cache.get(key)
+        if cached is None:
+            qc, g_vec, b_vec = build_parameterized_qaoa_circuit(hamiltonian, reps, measure=False)
+            qc.save_statevector()
+            tqc = transpile(qc, self._sim)
+            if len(self._compiled_cache) >= 64:
+                self._compiled_cache.pop(next(iter(self._compiled_cache)))
+            cached = (tqc, g_vec, b_vec)
+            self._compiled_cache[key] = cached
+        return cached
 
     def sample_distribution(
         self,
@@ -135,11 +202,13 @@ class AerStatevectorBackend(QuantumBackend):
         shots: int,
     ) -> dict[str, float]:
         del shots  # Statevector yields exact analytical probabilities
+        if len(gammas) != len(betas) or not gammas:
+            raise ValueError("gammas and betas must be non-empty lists of equal length")
         n = hamiltonian.num_qubits
-        qc = build_qaoa_circuit(hamiltonian, gammas, betas, measure=False)
-        qc.save_statevector()
-        result = self._sim.run(transpile(qc, self._sim)).result()
-        sv = np.asarray(result.get_statevector(qc), dtype=np.complex128)
+        tqc, g_vec, b_vec = self._get_compiled(hamiltonian, len(gammas))
+        bound = tqc.assign_parameters({g_vec: gammas, b_vec: betas}, inplace=False)
+        result = self._sim.run(bound).result()
+        sv = np.asarray(result.get_statevector(bound), dtype=np.complex128)
         probs = np.abs(sv) ** 2
 
         dist: dict[str, float] = {}
@@ -174,6 +243,10 @@ class AerNoisyBackend(QuantumBackend):
 
         self._sim = AerSimulator(noise_model=noise_model)
         self._seed = seed
+        self._compiled_cache: dict[
+            tuple[int, int, tuple[float, ...], tuple[tuple[int, int, float], ...]],
+            tuple[QuantumCircuit, ParameterVector, ParameterVector],
+        ] = {}
 
     @property
     def name(self) -> str:
@@ -184,6 +257,22 @@ class AerNoisyBackend(QuantumBackend):
         """Expose underlying noisy AerSimulator for ZNE/TREX error mitigation pipelines."""
         return self._sim
 
+    def _get_compiled(
+        self,
+        hamiltonian: IsingHamiltonian,
+        reps: int,
+    ) -> tuple[QuantumCircuit, ParameterVector, ParameterVector]:
+        key = _hamiltonian_cache_key(hamiltonian, reps)
+        cached = self._compiled_cache.get(key)
+        if cached is None:
+            qc, g_vec, b_vec = build_parameterized_qaoa_circuit(hamiltonian, reps, measure=True)
+            tqc = transpile(qc, self._sim, optimization_level=1)
+            if len(self._compiled_cache) >= 64:
+                self._compiled_cache.pop(next(iter(self._compiled_cache)))
+            cached = (tqc, g_vec, b_vec)
+            self._compiled_cache[key] = cached
+        return cached
+
     def sample_distribution(
         self,
         hamiltonian: IsingHamiltonian,
@@ -191,12 +280,16 @@ class AerNoisyBackend(QuantumBackend):
         betas: list[float],
         shots: int,
     ) -> dict[str, float]:
-        qc = build_qaoa_circuit(hamiltonian, gammas, betas, measure=True)
-        tqc = transpile(qc, self._sim, optimization_level=1)
+        if len(gammas) != len(betas) or not gammas:
+            raise ValueError("gammas and betas must be non-empty lists of equal length")
+        tqc, g_vec, b_vec = self._get_compiled(hamiltonian, len(gammas))
+        bound = tqc.assign_parameters({g_vec: gammas, b_vec: betas}, inplace=False)
         counts: dict[str, int] = dict(
-            self._sim.run(tqc, shots=shots, seed_simulator=self._seed).result().get_counts()
+            self._sim.run(bound, shots=shots, seed_simulator=self._seed).result().get_counts()
         )
         total = float(sum(counts.values()))
+        if total <= 0.0:
+            raise RuntimeError("AerNoisyBackend returned empty measurement counts")
         # Reverse Qiskit little-endian count key to x_0..x_{n-1} order
         return {key[::-1]: float(cnt) / total for key, cnt in counts.items()}
 
@@ -233,6 +326,11 @@ class IbmRuntimeBackend(QuantumBackend):
         if self._remote_backend_obj is not None:
             return f"ibm_runtime:{self._requested_backend}"
         return "aer_noisy_fallback"
+
+    @property
+    def simulator(self) -> AerSimulator:
+        """Expose fallback noisy AerSimulator for local error mitigation calibration."""
+        return self._fallback.simulator
 
     def sample_distribution(
         self,
@@ -334,6 +432,7 @@ class QaoaSolver:
     ) -> None:
         self._config = config or QuantumDreamerConfig()
         self._backend = backend or create_quantum_backend(self._config)
+        self._mitigation_pipeline: object | None = None
 
     @property
     def backend(self) -> QuantumBackend:
@@ -409,18 +508,19 @@ class QaoaSolver:
         if self._config.mitigation_mode != "none":
             from qaegis.modules.quantum_dreamer.mitigation import ErrorMitigationPipeline
 
-            sim = (
-                self._backend.simulator
-                if isinstance(self._backend, AerNoisyBackend)
-                else AerNoisyBackend().simulator
-            )
-            pipeline = ErrorMitigationPipeline(
-                simulator=sim,
-                mode=self._config.mitigation_mode,
-                scale_factors=self._config.zne_scale_factors,
-                extrapolation=self._config.zne_extrapolation,
-            )
-            mit_res = pipeline.evaluate_expectation(
+            if not isinstance(self._mitigation_pipeline, ErrorMitigationPipeline):
+                sim = (
+                    self._backend.simulator
+                    if isinstance(self._backend, (AerNoisyBackend, IbmRuntimeBackend))
+                    else AerNoisyBackend().simulator
+                )
+                self._mitigation_pipeline = ErrorMitigationPipeline(
+                    simulator=sim,
+                    mode=self._config.mitigation_mode,
+                    scale_factors=self._config.zne_scale_factors,
+                    extrapolation=self._config.zne_extrapolation,
+                )
+            mit_res = self._mitigation_pipeline.evaluate_expectation(
                 final_qc,
                 hamiltonian=hamiltonian,
                 shots=shots,

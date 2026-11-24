@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from qaegis.core.bus import EventBus, EventEnvelope
 from qaegis.core.config import ChameleonConfig
-from qaegis.core.identity import DeviceIdentity, PublicIdentityBundle
+from qaegis.core.identity import DeviceIdentity, PublicIdentityBundle, TrustKeyring
 from qaegis.core.telemetry import QAegisMetrics, get_logger
 from qaegis.modules.chameleon_fw.crypto_agility import CryptoAgilityEngine, EncryptedEnvelope
 from qaegis.modules.chameleon_fw.detector import (
@@ -126,9 +126,16 @@ class ChameleonFirewallService:
         self,
         envelope: EncryptedEnvelope,
         expected_sender: PublicIdentityBundle | None = None,
+        expected_sender_keyring: TrustKeyring | None = None,
+        allow_replay: bool = False,
     ) -> bytes:
         """Authenticate and decrypt a received Quantum Chameleon envelope."""
-        return self._crypto.decrypt(envelope=envelope, expected_sender=expected_sender)
+        return self._crypto.decrypt(
+            envelope=envelope,
+            expected_sender=expected_sender,
+            expected_sender_keyring=expected_sender_keyring,
+            allow_replay=allow_replay,
+        )
 
     async def _handle_protect_rpc(self, envelope: EventEnvelope) -> dict[str, Any]:
         p = envelope.payload

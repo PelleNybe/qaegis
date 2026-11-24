@@ -59,15 +59,26 @@ class SensorToAngleAutoencoder(torch.nn.Module):
 
 
 class _EncoderExportWrapper(torch.nn.Module):
-    """Exportable wrapper exposing only the bounded [-pi, pi] encoder for ONNX inference."""
+    """Self-contained export wrapper fusing standardization and bounded [-pi, pi] encoder."""
 
-    def __init__(self, autoencoder: SensorToAngleAutoencoder) -> None:
+    input_mean: torch.Tensor
+    input_std: torch.Tensor
+
+    def __init__(
+        self,
+        autoencoder: SensorToAngleAutoencoder,
+        mean: NDArray[np.float32],
+        std: NDArray[np.float32],
+    ) -> None:
         super().__init__()
         self.encoder = autoencoder.encoder
         self.num_qubits = autoencoder.num_qubits
+        self.register_buffer("input_mean", torch.from_numpy(mean.astype(np.float32)).view(1, -1))
+        self.register_buffer("input_std", torch.from_numpy(std.astype(np.float32)).view(1, -1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        angles: torch.Tensor = self.encoder(x) * math.pi
+        normed = (x - self.input_mean) / self.input_std
+        angles: torch.Tensor = self.encoder(normed) * math.pi
         return angles.view(-1, self.num_qubits, 3)
 
 
@@ -127,9 +138,9 @@ class AngleEncoderPipeline:
         return losses
 
     def export_onnx(self, output_path: Path) -> Path:
-        """Export the trained angle encoder to ONNX for ultra-low-latency edge execution."""
+        """Export a self-contained ONNX angle encoder (including standardization stats)."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        wrapper = _EncoderExportWrapper(self.model)
+        wrapper = _EncoderExportWrapper(self.model, mean=self._mean, std=self._std)
         wrapper.eval()
         dummy = torch.zeros((1, self.input_dim), dtype=torch.float32)
         with warnings.catch_warnings():
@@ -155,13 +166,14 @@ class AngleEncoderPipeline:
     def encode_to_angles(self, vector: NDArray[np.float32] | list[float]) -> QuantumAnglePayload:
         """Compress a single numeric sensor vector into bounded [-pi, pi] (Rx, Ry, Rz) angles."""
         arr = np.asarray(vector, dtype=np.float32).reshape(1, self.input_dim)
-        normed = ((arr - self._mean) / self._std).astype(np.float32)
 
         if self._onnx_session is not None:
-            out = self._onnx_session.run(None, {"sensor_tensor": normed})
+            # Standardization (mean/std) is fused inside the exported ONNX graph
+            out = self._onnx_session.run(None, {"sensor_tensor": arr})
             angles_np = np.asarray(out[0], dtype=np.float64)[0]
             backend = "onnxruntime_cpu"
         else:
+            normed = ((arr - self._mean) / self._std).astype(np.float32)
             self.model.eval()
             with torch.no_grad():
                 angles_t = self.model.encode(torch.from_numpy(normed))

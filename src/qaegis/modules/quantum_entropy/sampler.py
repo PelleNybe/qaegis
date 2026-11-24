@@ -73,6 +73,8 @@ class QuantumMCTS(Generic[StateT, ActionT]):
 
     def search(self, root_state: StateT, iterations: int = 100) -> tuple[ActionT, float]:
         """Run `iterations` quantum-seeded MCTS simulations and return (best_action, mean_value)."""
+        if iterations < 1:
+            raise ValueError(f"MCTS iterations must be >= 1, got {iterations}")
         root: _MctsNode[StateT, ActionT] = _MctsNode(root_state)
         root.untried_actions = list(self._actions_fn(root_state))
         if not root.untried_actions:
@@ -162,6 +164,10 @@ class QuantumEvolutionaryMutator:
         elite_count: int = 3,
     ) -> EvolutionResult:
         """Evolve a continuous genome population using quantum-entropy mutations."""
+        if not initial_genome:
+            raise ValueError("initial_genome must be non-empty")
+        if population_size < 1 or generations < 1 or elite_count < 1:
+            raise ValueError("population_size, generations, and elite_count must be >= 1")
         pop: list[list[float]] = [list(initial_genome)]
         while len(pop) < population_size:
             pop.append(self.mutate_genome(initial_genome))
@@ -215,12 +221,9 @@ class QuantumLogitSampler:
             raise ValueError("logits must be a non-empty 1D sequence")
 
         eff_temp = max(temperature, 1e-4)
-        # Quantum-entropy micro-perturbation prevents deterministic mode collapse
+        # Vectorized quantum-entropy micro-perturbation prevents deterministic mode collapse
         if quantum_perturbation > 0.0:
-            noise = np.array(
-                [self._pool.next_gaussian() * quantum_perturbation for _ in range(arr.size)],
-                dtype=np.float64,
-            )
+            noise = self._pool.next_gaussians(arr.size) * quantum_perturbation
             arr = arr + noise
 
         scaled = (arr - float(np.max(arr))) / eff_temp

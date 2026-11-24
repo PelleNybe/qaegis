@@ -25,10 +25,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install system build dependencies for liboqs
+      - name: Install system build dependencies for liboqs & SoftHSM2
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build libssl-dev build-essential git
+          sudo apt-get install -y --no-install-recommends cmake ninja-build libssl-dev build-essential git softhsm2
 
       - name: Build and install liboqs shared library
         run: |

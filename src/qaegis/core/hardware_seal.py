@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import pkcs11
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -17,6 +17,9 @@ from pkcs11 import Attribute, KeyType, Mechanism, ObjectClass
 from pydantic import BaseModel, Field
 
 from qaegis.core.telemetry import get_logger
+
+if TYPE_CHECKING:
+    from qaegis.core.config import IdentityConfig
 
 logger = get_logger(__name__)
 
@@ -61,7 +64,29 @@ class HardwareSealer(Protocol):
 
     def seal(self, plaintext: bytes, associated_data: bytes = b"") -> SealedBlob: ...
 
-    def unseal(self, blob: SealedBlob, associated_data: bytes = b"") -> bytes: ...
+    def unseal(self, blob: SealedBlob, associated_data: bytes | None = None) -> bytes: ...
+
+
+def _secure_delete_file(path: Path) -> None:
+    """Overwrite a temporary secret file with zeros before unlinking."""
+    if not path.is_file():
+        return
+    try:
+        size = path.stat().st_size
+        if size > 0:
+            with path.open("r+b") as handle:
+                handle.write(b"\x00" * size)
+                handle.flush()
+                os.fsync(handle.fileno())
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def _resolve_unseal_aad(blob: SealedBlob, associated_data: bytes | None) -> bytes:
+    """Return explicit `associated_data` when provided, or fall back to stored `blob.aad_b64`."""
+    if associated_data is not None:
+        return associated_data
+    return base64.b64decode(blob.aad_b64)
 
 
 def detect_pkcs11_library(explicit_path: str | Path | None = None) -> Path | None:
@@ -204,7 +229,7 @@ class PKCS11Sealer:
             metadata={"token_label": self._token_label},
         )
 
-    def unseal(self, blob: SealedBlob, associated_data: bytes = b"") -> bytes:
+    def unseal(self, blob: SealedBlob, associated_data: bytes | None = None) -> bytes:
         """Unwrap the DEK inside the PKCS#11 token and decrypt/authenticate the PQC secret blob."""
         if blob.backend != self.backend_name:
             raise ValueError(f"Expected pkcs11 sealed blob, got '{blob.backend}'")
@@ -229,7 +254,7 @@ class PKCS11Sealer:
             )
             if not matches:
                 raise KeyError(f"PKCS#11 KEK '{blob.key_label}' not found in token '{token_label}'")
-            dek: bytes = bytes(
+            dek = bytearray(
                 matches[0].decrypt(
                     wrapped_dek,
                     mechanism=Mechanism.AES_CBC_PAD,
@@ -237,11 +262,15 @@ class PKCS11Sealer:
                 )
             )
 
-        gcm_nonce = base64.b64decode(blob.gcm_nonce_b64)
-        ciphertext = base64.b64decode(blob.ciphertext_b64)
-        effective_aad = associated_data if associated_data else base64.b64decode(blob.aad_b64)
-        bound_aad = effective_aad + b"|pkcs11|" + wrapped_dek + kek_iv
-        return AESGCM(dek).decrypt(gcm_nonce, ciphertext, bound_aad)
+        try:
+            gcm_nonce = base64.b64decode(blob.gcm_nonce_b64)
+            ciphertext = base64.b64decode(blob.ciphertext_b64)
+            effective_aad = _resolve_unseal_aad(blob, associated_data)
+            bound_aad = effective_aad + b"|pkcs11|" + wrapped_dek + kek_iv
+            return AESGCM(bytes(dek)).decrypt(gcm_nonce, ciphertext, bound_aad)
+        finally:
+            for idx in range(len(dek)):
+                dek[idx] = 0
 
 
 class TPM2Sealer:
@@ -395,22 +424,29 @@ class TPM2Sealer:
                 f"TPM 2.0 sealing unavailable: device={self._device_path} "
                 f"(exists={self._device_path.exists()}), tools_installed={self.tools_installed()}"
             )
-        dek = os.urandom(32)
-        with tempfile.TemporaryDirectory(prefix="qaegis-tpm2-") as td:
-            work_dir = Path(td)
-            secret_in = work_dir / "dek.bin"
-            secret_in.write_bytes(dek)
-            os.chmod(secret_in, 0o600)
+        dek = bytearray(os.urandom(32))
+        try:
+            with tempfile.TemporaryDirectory(prefix="qaegis-tpm2-") as td:
+                work_dir = Path(td)
+                secret_in = work_dir / "dek.bin"
+                try:
+                    secret_in.write_bytes(bytes(dek))
+                    os.chmod(secret_in, 0o600)
 
-            for cmd in self.build_seal_commands(work_dir, secret_in):
-                subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+                    for cmd in self.build_seal_commands(work_dir, secret_in):
+                        subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
 
-            pub_bytes = (work_dir / "sealed.pub").read_bytes()
-            priv_bytes = (work_dir / "sealed.priv").read_bytes()
+                    pub_bytes = (work_dir / "sealed.pub").read_bytes()
+                    priv_bytes = (work_dir / "sealed.priv").read_bytes()
+                finally:
+                    _secure_delete_file(secret_in)
 
-        gcm_nonce = os.urandom(12)
-        bound_aad = associated_data + b"|tpm2|" + pub_bytes + priv_bytes
-        ciphertext = AESGCM(dek).encrypt(gcm_nonce, plaintext, bound_aad)
+            gcm_nonce = os.urandom(12)
+            bound_aad = associated_data + b"|tpm2|" + pub_bytes + priv_bytes
+            ciphertext = AESGCM(bytes(dek)).encrypt(gcm_nonce, plaintext, bound_aad)
+        finally:
+            for idx in range(len(dek)):
+                dek[idx] = 0
 
         return SealedBlob(
             backend=self.backend_name,
@@ -423,7 +459,7 @@ class TPM2Sealer:
             metadata={"pcr_spec": self._pcr_spec, "device": str(self._device_path)},
         )
 
-    def unseal(self, blob: SealedBlob, associated_data: bytes = b"") -> bytes:
+    def unseal(self, blob: SealedBlob, associated_data: bytes | None = None) -> bytes:
         """Unseal the TPM 2.0 PCR-bound DEK and decrypt/authenticate the PQC secret blob."""
         if blob.backend != self.backend_name:
             raise ValueError(f"Expected tpm2 sealed blob, got '{blob.backend}'")
@@ -434,20 +470,53 @@ class TPM2Sealer:
         priv_bytes = base64.b64decode(blob.wrapped_dek_b64)
         pub_bytes = base64.b64decode(blob.kek_iv_b64)
 
-        with tempfile.TemporaryDirectory(prefix="qaegis-tpm2-") as td:
-            work_dir = Path(td)
-            pub_in = work_dir / "sealed.pub"
-            priv_in = work_dir / "sealed.priv"
-            secret_out = work_dir / "dek.out"
-            pub_in.write_bytes(pub_bytes)
-            priv_in.write_bytes(priv_bytes)
+        dek = bytearray()
+        try:
+            with tempfile.TemporaryDirectory(prefix="qaegis-tpm2-") as td:
+                work_dir = Path(td)
+                pub_in = work_dir / "sealed.pub"
+                priv_in = work_dir / "sealed.priv"
+                secret_out = work_dir / "dek.out"
+                try:
+                    pub_in.write_bytes(pub_bytes)
+                    priv_in.write_bytes(priv_bytes)
 
-            for cmd in self.build_unseal_commands(work_dir, pub_in, priv_in, secret_out):
-                subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
-            dek = secret_out.read_bytes()
+                    for cmd in self.build_unseal_commands(work_dir, pub_in, priv_in, secret_out):
+                        subprocess.run(cmd, check=True, capture_output=True)  # noqa: S603
+                    dek = bytearray(secret_out.read_bytes())
+                finally:
+                    _secure_delete_file(secret_out)
 
-        gcm_nonce = base64.b64decode(blob.gcm_nonce_b64)
-        ciphertext = base64.b64decode(blob.ciphertext_b64)
-        effective_aad = associated_data if associated_data else base64.b64decode(blob.aad_b64)
-        bound_aad = effective_aad + b"|tpm2|" + pub_bytes + priv_bytes
-        return AESGCM(dek).decrypt(gcm_nonce, ciphertext, bound_aad)
+            gcm_nonce = base64.b64decode(blob.gcm_nonce_b64)
+            ciphertext = base64.b64decode(blob.ciphertext_b64)
+            effective_aad = _resolve_unseal_aad(blob, associated_data)
+            bound_aad = effective_aad + b"|tpm2|" + pub_bytes + priv_bytes
+            return AESGCM(bytes(dek)).decrypt(gcm_nonce, ciphertext, bound_aad)
+        finally:
+            for idx in range(len(dek)):
+                dek[idx] = 0
+
+
+def create_sealer_from_config(
+    config: IdentityConfig,
+    backend: str | None = None,
+    token_label: str | None = None,
+    user_pin: str | None = None,
+    library_path: str | Path | None = None,
+    pcr_spec: str | None = None,
+) -> HardwareSealer:
+    """Instantiate a PKCS#11 or TPM 2.0 HardwareSealer from IdentityConfig and CLI overrides."""
+    resolved = backend if backend is not None else config.hardware_seal_backend
+    if resolved == "pkcs11":
+        return PKCS11Sealer(
+            token_label=token_label or config.pkcs11_token_label,
+            user_pin=user_pin,
+            key_label=config.pkcs11_key_label,
+            library_path=library_path or config.pkcs11_library,
+        )
+    if resolved == "tpm2":
+        return TPM2Sealer(
+            device_path=Path(config.tpm2_device),
+            pcr_spec=pcr_spec or config.tpm2_pcr_spec,
+        )
+    raise ValueError(f"Unsupported hardware sealing backend '{resolved}'. Use 'pkcs11' or 'tpm2'.")

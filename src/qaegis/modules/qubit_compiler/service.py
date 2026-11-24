@@ -17,6 +17,7 @@ from qaegis.modules.qubit_compiler.circuit_builder import (
 from qaegis.modules.qubit_compiler.qubo_mapper import (
     QuboProblem,
     build_maxcut_qubo,
+    build_resource_allocation_qubo,
     build_task_scheduling_qubo,
 )
 
@@ -110,6 +111,11 @@ class QubitCompilerService:
             costs = [float(c) for c in p["task_costs"]]
             conflicts = [(int(u), int(v)) for u, v in p.get("conflicts", [])]
             qubo = build_task_scheduling_qubo(costs, conflicts, int(p["target_active_tasks"]))
+        elif kind == "resource_allocation":
+            utilities = [float(u) for u in p["utilities"]]
+            costs = [float(c) for c in p["costs"]]
+            penalty = float(p.get("budget_penalty", 1.5))
+            qubo = build_resource_allocation_qubo(utilities, costs, budget_penalty=penalty)
         else:
             raise ValueError(f"Unsupported QUBO problem_type: {kind}")
         return qubo.model_dump(mode="json")

@@ -19,7 +19,7 @@ from qaegis.core.identity import (
     constant_time_equal,
 )
 from qaegis.core.telemetry import QAegisMetrics
-from qaegis.modules.reality_stamp.merkle import MerkleProof, verify_merkle_proof
+from qaegis.modules.reality_stamp.merkle import MerkleProof, hash_leaf, verify_merkle_proof
 
 
 class RealityPayload(BaseModel):
@@ -52,6 +52,20 @@ class RealityStamp(BaseModel):
     public_key_fingerprint: str
     signature_b64: str
     merkle_proof: MerkleProof | None = None
+
+
+def compute_stamp_leaf_hash(stamp: RealityStamp) -> str:
+    """Compute the RFC 6962 domain-separated SHA-256 Merkle leaf hash bound to `stamp`."""
+    leaf_bytes = orjson.dumps(
+        {
+            "payload_sha256": stamp.payload_sha256,
+            "signature_b64": stamp.signature_b64,
+            "algorithm": stamp.algorithm,
+            "public_key_fingerprint": stamp.public_key_fingerprint,
+        },
+        option=orjson.OPT_SORT_KEYS,
+    )
+    return hash_leaf(leaf_bytes).hex()
 
 
 class StampVerificationResult(BaseModel):
@@ -184,7 +198,14 @@ def verify_reality_stamp(
 
     merkle_ok: bool | None = None
     if stamp.merkle_proof is not None:
-        merkle_ok = verify_merkle_proof(stamp.merkle_proof)
+        expected_leaf = compute_stamp_leaf_hash(stamp)
+        leaf_bound = constant_time_equal(
+            expected_leaf.encode("ascii"),
+            stamp.merkle_proof.leaf_hash.encode("ascii"),
+        )
+        merkle_ok = leaf_bound and verify_merkle_proof(stamp.merkle_proof)
+        if not leaf_bound and err_msg is None:
+            err_msg = "Merkle inclusion proof leaf_hash does not match this RealityStamp"
 
     overall = (
         payload_hash_ok and fingerprint_ok and signature_ok and (merkle_ok is None or merkle_ok)

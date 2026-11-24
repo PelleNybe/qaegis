@@ -25,6 +25,7 @@ from qaegis.core.hardware_seal import (
     HardwareSealer,
     PKCS11Sealer,
     TPM2Sealer,
+    create_sealer_from_config,
     detect_pkcs11_library,
 )
 from qaegis.core.identity import IdentityManager, PublicIdentityBundle, TrustKeyring
@@ -34,6 +35,7 @@ from qaegis.core.telemetry import QAegisMetrics, configure_logging
 from qaegis.demo import run_interactive_demo
 from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
 from qaegis.modules.quantum_dreamer.service import NightCycleReport, QuantumDreamerService
+from qaegis.modules.quantum_dreamer.solvers import get_backend_registry
 from qaegis.modules.quantum_entropy.harvester import (
     QuantumDistributionBatch,
     QuantumDistributionHarvester,
@@ -176,6 +178,13 @@ def rotate_keys_cmd(
         Path | None,
         typer.Option("--pkcs11-lib", help="Optional explicit PKCS#11 shared library path."),
     ] = None,
+    remove_plaintext: Annotated[
+        bool,
+        typer.Option(
+            "--remove-plaintext",
+            help="Delete unsealed secret JSON after sealing rotated keys.",
+        ),
+    ] = False,
     config_file: Annotated[
         Path | None,
         typer.Option("--config", "-c", help="Optional YAML configuration file."),
@@ -188,25 +197,24 @@ def rotate_keys_cmd(
     mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
 
     sealer: HardwareSealer | None = None
-    if seal_backend == "pkcs11":
-        sealer = PKCS11Sealer(
-            token_label=token_label or cfg.identity.pkcs11_token_label,
-            user_pin=user_pin,
-            key_label=cfg.identity.pkcs11_key_label,
-            library_path=library_path or cfg.identity.pkcs11_library,
-        )
-    elif seal_backend == "tpm2":
-        sealer = TPM2Sealer(
-            device_path=Path(cfg.identity.tpm2_device),
-            pcr_spec=cfg.identity.tpm2_pcr_spec,
-        )
-    elif seal_backend is not None:
-        console.print(
-            f"[red]Unsupported --seal-backend '{seal_backend}'. Use pkcs11 or tpm2.[/red]"
-        )
-        raise typer.Exit(code=2)
+    if seal_backend is not None:
+        try:
+            sealer = create_sealer_from_config(
+                cfg.identity,
+                backend=seal_backend,
+                token_label=token_label,
+                user_pin=user_pin,
+                library_path=library_path,
+            )
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=2) from exc
 
-    new_id, keyring = mgr.rotate_keys(sealer=sealer, metrics=metrics)
+    new_id, keyring = mgr.rotate_keys(
+        sealer=sealer,
+        metrics=metrics,
+        remove_plaintext_secret=remove_plaintext,
+    )
     bundle = new_id.public_bundle()
 
     table = Table(title=f"Q-Aegis Zero-Downtime Key Rotation ({bundle.node_id})")
@@ -243,20 +251,39 @@ def doctor_cmd(
     cfg = load_config(config_file)
     cfg.ensure_directories()
 
-    async def _check_storage() -> tuple[int, bool, int]:
-        store = StorageEngine(cfg.db_path)
-        await store.initialize()
-        try:
+    async def _check_storage() -> tuple[int, bool, int, bool, int, bool, int]:
+        async with StorageEngine(cfg.db_path) as store:
             schema_v = await store.get_schema_version()
-            ok, count = await store.verify_audit_chain()
-            return schema_v, ok, count
-        finally:
-            await store.close()
+            audit_ok, audit_count = await store.verify_audit_chain()
+            dream_ok, dream_count = await store.verify_dream_problem_integrity()
+            policy_ok, policy_count = await store.verify_policy_snapshots()
+            return (
+                schema_v,
+                audit_ok,
+                audit_count,
+                dream_ok,
+                dream_count,
+                policy_ok,
+                policy_count,
+            )
 
-    schema_v, audit_ok, audit_count = asyncio.run(_check_storage())
+    (
+        schema_v,
+        audit_ok,
+        audit_count,
+        dream_ok,
+        dream_count,
+        policy_ok,
+        policy_count,
+    ) = asyncio.run(_check_storage())
 
     enabled_kems = set(oqs.get_enabled_kem_mechanisms())
     enabled_sigs = set(oqs.get_enabled_sig_mechanisms())
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+    keyring_status = "not initialized"
+    if mgr.keyring_path.is_file():
+        kr = mgr.load_keyring()
+        keyring_status = f"v{kr.current_version} ({len(kr.keys)} key(s))"
 
     table = Table(title="Q-Aegis System Diagnostics")
     table.add_column("Check", style="cyan")
@@ -269,6 +296,13 @@ def doctor_cmd(
     )
     table.add_row("SQLite WAL Schema Version", str(schema_v))
     table.add_row("Audit Hash Chain Valid", f"{audit_ok} ({audit_count} records)")
+    table.add_row("Dream Queue Integrity", f"{dream_ok} ({dream_count} problems)")
+    table.add_row("Policy Snapshots Integrity", f"{policy_ok} ({policy_count} snapshots)")
+    table.add_row("Trust Keyring", keyring_status)
+    table.add_row(
+        "Registered Quantum Backends",
+        ", ".join(get_backend_registry().available_backends()),
+    )
 
     tpm_sealer = TPM2Sealer(device_path=Path(cfg.identity.tpm2_device))
     table.add_row(
@@ -287,7 +321,7 @@ def doctor_cmd(
     table.add_row("PKCS#11 HSM / SoftHSM2", slot_summary)
 
     console.print(table)
-    if not audit_ok:
+    if not (audit_ok and dream_ok and policy_ok):
         raise typer.Exit(code=1)
 
 
@@ -302,9 +336,9 @@ def seal_identity_cmd(
         typer.Option("--token-label", help="PKCS#11 token label (for pkcs11 backend)."),
     ] = None,
     user_pin: Annotated[
-        str,
-        typer.Option("--pin", help="PKCS#11 user PIN (for pkcs11 backend)."),
-    ] = "1234",
+        str | None,
+        typer.Option("--pin", help="PKCS#11 user PIN (or set QAEGIS_PKCS11_PIN env var)."),
+    ] = None,
     library_path: Annotated[
         Path | None,
         typer.Option("--pkcs11-lib", help="Optional explicit PKCS#11 shared library path."),
@@ -328,22 +362,18 @@ def seal_identity_cmd(
     mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
     identity = mgr.load_or_create()
 
-    sealer: HardwareSealer
-    if backend == "pkcs11":
-        sealer = PKCS11Sealer(
-            token_label=token_label or cfg.identity.pkcs11_token_label,
+    try:
+        sealer = create_sealer_from_config(
+            cfg.identity,
+            backend=backend,
+            token_label=token_label,
             user_pin=user_pin,
-            key_label=cfg.identity.pkcs11_key_label,
-            library_path=library_path or cfg.identity.pkcs11_library,
+            library_path=library_path,
+            pcr_spec=pcr_spec,
         )
-    elif backend == "tpm2":
-        sealer = TPM2Sealer(
-            device_path=Path(cfg.identity.tpm2_device),
-            pcr_spec=pcr_spec or cfg.identity.tpm2_pcr_spec,
-        )
-    else:
-        console.print(f"[red]Unsupported sealing backend '{backend}'. Use pkcs11 or tpm2.[/red]")
-        raise typer.Exit(code=2)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
 
     blob = mgr.seal_identity(identity, sealer, remove_plaintext_secret=remove_plaintext)
     console.print(
@@ -557,15 +587,22 @@ def dream_cmd(
     table.add_column("Best Bitstring", style="green")
     table.add_column("Energy", style="yellow")
     table.add_column("Approx Ratio", style="green")
+    show_mitigated = mitigation != "none"
+    if show_mitigated:
+        table.add_column("Mitigated <E>", style="cyan")
     for sol in report.solutions:
         ratio = sol.approximation_ratio
-        table.add_row(
+        row_cells = [
             sol.problem_id,
             sol.backend_name,
             sol.optimal_bitstring,
             f"{sol.optimal_energy:.3f}",
             f"{ratio:.4f}" if ratio is not None else "n/a",
-        )
+        ]
+        if show_mitigated:
+            mit_val = sol.mitigated_expected_energy
+            row_cells.append(f"{mit_val:.4f}" if mit_val is not None else "n/a")
+        table.add_row(*row_cells)
     console.print(table)
 
 
@@ -688,6 +725,9 @@ def run_cmd(
                 except TimeoutError:
                     continue
         finally:
+            if sys.platform != "win32":
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.remove_signal_handler(sig)
             await lifecycle.shutdown()
             await reality_svc.stop()
             await storage.close()

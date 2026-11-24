@@ -9,6 +9,7 @@ import hashlib
 import os
 import tempfile
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -196,6 +197,27 @@ class EventBus:
         self._zmq_sub: zmq.asyncio.Socket | None = None
         self._zmq_reader_task: asyncio.Task[None] | None = None
         self._bound_pub_endpoint: str | None = None
+        self._recent_event_order: deque[str] = deque()
+        self._recent_event_ids: set[str] = set()
+        self._dedup_capacity = 4096
+
+    async def __aenter__(self) -> EventBus:
+        await self.start()
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        await self.stop()
+
+    def _record_event_id(self, event_id: str) -> bool:
+        """Record `event_id` and return False if already seen recently (loopback dedup)."""
+        if event_id in self._recent_event_ids:
+            return False
+        self._recent_event_ids.add(event_id)
+        self._recent_event_order.append(event_id)
+        while len(self._recent_event_order) > self._dedup_capacity:
+            evicted = self._recent_event_order.popleft()
+            self._recent_event_ids.discard(evicted)
+        return True
 
     @property
     def is_running(self) -> bool:
@@ -321,7 +343,7 @@ class EventBus:
         self._auth_provider = None
 
         if self._zmq_ctx is not None:
-            self._zmq_ctx.term()
+            self._zmq_ctx.destroy(linger=0)
             self._zmq_ctx = None
 
         for sub in list(self._subscriptions.values()):
@@ -398,6 +420,7 @@ class EventBus:
             source=envelope.source,
         ).inc()
 
+        self._record_event_id(envelope.event_id)
         await self._deliver_local(envelope)
 
         if self._zmq_pub is not None:
@@ -519,6 +542,8 @@ class EventBus:
                 if len(frames) != 2:
                     continue
                 envelope = EventEnvelope.from_wire_bytes(frames[1])
+                if not self._record_event_id(envelope.event_id):
+                    continue
                 await self._deliver_local(envelope)
             except asyncio.CancelledError:
                 raise

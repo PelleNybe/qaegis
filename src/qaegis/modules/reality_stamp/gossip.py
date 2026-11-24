@@ -21,6 +21,7 @@ from qaegis.core.bus import (
 from qaegis.core.identity import (
     DeviceIdentity,
     PublicIdentityBundle,
+    TrustKeyring,
     compute_key_fingerprint,
     constant_time_equal,
 )
@@ -94,6 +95,7 @@ class MerkleGossipNode:
         self._curve_kp = curve_keypair or generate_curve_keypair()
         self._trusted_peers: dict[str, PublicIdentityBundle] = dict(trusted_peers or {})
         self._trusted_peers[identity.node_id] = identity.public_bundle()
+        self._trusted_keyrings: dict[str, TrustKeyring] = {}
 
         self._seen_keys: set[tuple[str, int, str]] = set()
         self._latest_roots: dict[str, tuple[int, str]] = {}
@@ -140,6 +142,36 @@ class MerkleGossipNode:
         if curve_public_key is not None and self._allowlist is not None:
             self._allowlist.allow_key(curve_public_key)
 
+    def register_trusted_keyring(
+        self,
+        keyring: TrustKeyring,
+        curve_public_key: str | None = None,
+    ) -> None:
+        """Register a peer's versioned TrustKeyring so rotated keys verify seamlessly."""
+        self._trusted_keyrings[keyring.node_id] = keyring
+        active = keyring.get_by_key_id(keyring.current_key_id)
+        if active is not None:
+            self._trusted_peers[keyring.node_id] = active
+        if curve_public_key is not None and self._allowlist is not None:
+            self._allowlist.allow_key(curve_public_key)
+
+    async def hydrate_from_storage(self) -> int:
+        """Hydrate witnessed checkpoints from SQLite WAL to survive node restarts cleanly."""
+        rows = await self._storage.list_gossip_checkpoints()
+        loaded = 0
+        for row in rows:
+            if str(row.get("status", "")) != "VERIFIED":
+                continue
+            peer_id = str(row["peer_node_id"])
+            t_size = int(row["tree_size"])
+            root_hex = str(row["merkle_root"])
+            self._seen_keys.add((peer_id, t_size, root_hex))
+            prev = self._latest_roots.get(peer_id)
+            if prev is None or t_size >= prev[0]:
+                self._latest_roots[peer_id] = (t_size, root_hex)
+            loaded += 1
+        return loaded
+
     def create_checkpoint(self, merkle_root: str, tree_size: int) -> MerkleGossipEnvelope:
         """Sign this node's current Merkle root using ML-DSA-65."""
         fp = compute_key_fingerprint(self._identity.primary_sig_public)
@@ -171,6 +203,7 @@ class MerkleGossipNode:
                 raise RuntimeError("Gossip node is running without a bound endpoint")
             return self._bound_endpoint
         self._running = True
+        await self.hydrate_from_storage()
         self._ctx = zmq.asyncio.Context()
         self._auth = AsyncioAuthenticator(self._ctx)
         self._auth.start()
@@ -224,7 +257,7 @@ class MerkleGossipNode:
             self._auth.stop()
             self._auth = None
         if self._ctx is not None:
-            self._ctx.term()
+            self._ctx.destroy(linger=0)
             self._ctx = None
         self._bound_endpoint = None
 
@@ -244,7 +277,12 @@ class MerkleGossipNode:
         rebroadcast: bool = True,
     ) -> GossipVerificationOutcome:
         """Verify peer ML-DSA-65 signature, check for split-view equivocation, and persist."""
-        peer_bundle = self._trusted_peers.get(envelope.node_id)
+        peer_bundle: PublicIdentityBundle | None = None
+        peer_kr = self._trusted_keyrings.get(envelope.node_id)
+        if peer_kr is not None:
+            peer_bundle = peer_kr.get_by_key_id(envelope.key_id)
+        if peer_bundle is None:
+            peer_bundle = self._trusted_peers.get(envelope.node_id)
         if peer_bundle is None:
             return GossipVerificationOutcome(
                 accepted=False,

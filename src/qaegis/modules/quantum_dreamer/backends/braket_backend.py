@@ -64,9 +64,17 @@ class AwsBraketBackend(QuantumBackend):
         self._device: Any
         self._is_remote = False
 
-        if self._device_arn and (
-            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE")
-        ):
+        has_aws_creds = any(
+            os.environ.get(var)
+            for var in (
+                "AWS_ACCESS_KEY_ID",
+                "AWS_PROFILE",
+                "AWS_SESSION_TOKEN",
+                "AWS_WEB_IDENTITY_TOKEN_FILE",
+                "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+            )
+        )
+        if self._device_arn and has_aws_creds:
             self._device = AwsDevice(self._device_arn)
             self._is_remote = True
         else:
@@ -91,6 +99,8 @@ class AwsBraketBackend(QuantumBackend):
         shots: int,
     ) -> dict[str, float]:
         """Execute the OpenQASM 3.0 QAOA program on AWS Braket LocalSimulator or QPU."""
+        if shots < 1:
+            raise ValueError(f"shots must be >= 1, got {shots}")
         source = build_braket_openqasm3(hamiltonian, gammas, betas)
         program = Program(source=source)
         if self._is_remote and self._s3_folder is not None:
@@ -100,5 +110,7 @@ class AwsBraketBackend(QuantumBackend):
         result = task.result()
         counts: dict[str, int] = dict(result.measurement_counts)
         total = float(sum(counts.values()))
+        if total <= 0.0:
+            raise RuntimeError("AWS Braket returned empty measurement_counts")
         # Braket measurement bitstrings are already big-endian (q[0] at index 0 -> x_0..x_{n-1})
         return {bs: float(cnt) / total for bs, cnt in counts.items()}

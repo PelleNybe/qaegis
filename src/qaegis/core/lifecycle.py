@@ -122,8 +122,7 @@ class LifecycleManager:
             self._history.append(record)
 
         await self._publish_transition(record)
-        for hook in self._on_enter_night:
-            await hook(record)
+        await self._run_hooks(self._on_enter_night, record, phase="night")
         logger.info("lifecycle_entered_night", reason=reason, previous_mode=prev.value)
         return record
 
@@ -154,10 +153,33 @@ class LifecycleManager:
             self._history.append(record)
 
         await self._publish_transition(record)
-        for hook in self._on_enter_day:
-            await hook(record)
+        await self._run_hooks(self._on_enter_day, record, phase="day")
         logger.info("lifecycle_entered_day", reason=reason, previous_mode=prev.value)
         return record
+
+    async def _run_hooks(
+        self,
+        hooks: list[LifecycleHook],
+        record: ModeTransitionRecord,
+        phase: str,
+    ) -> None:
+        """Execute registered lifecycle hooks with per-hook fault isolation."""
+        for hook in list(hooks):
+            try:
+                await hook(record)
+            except Exception as exc:
+                hook_name = getattr(hook, "__qualname__", repr(hook))
+                logger.exception("lifecycle_hook_failed", phase=phase, hook=hook_name)
+                await self._bus.publish(
+                    topic="lifecycle.hook_error",
+                    source="core.lifecycle",
+                    payload={
+                        "phase": phase,
+                        "hook": hook_name,
+                        "error": str(exc),
+                        "mode": record.new_mode.value,
+                    },
+                )
 
     async def evaluate_auto_transition(
         self,
