@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Q-Aegis Mission Control — Quantum-Secured Autonomous Edge-AI</title>
+  <link rel="stylesheet" href="/assets/app.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">Q</div>
+        <div>
+          <div class="brand-title">Q-AEGIS</div>
+          <div class="brand-sub" id="sidebarVersion">Mission Control v0.5.0</div>
+        </div>
+      </div>
+
+      <nav class="nav-list" id="mainNav">
+        <button class="nav-btn active" data-tab="overview">
+          <span class="nav-dot dot-cyan"></span>
+          <span>Mission Overview</span>
+        </button>
+        <button class="nav-btn" data-tab="config">
+          <span class="nav-dot dot-amber"></span>
+          <span>Configuration Center</span>
+        </button>
+        <button class="nav-btn" data-tab="identity">
+          <span class="nav-dot dot-emerald"></span>
+          <span>PQC Identity &amp; CBOM</span>
+        </button>
+        <div class="nav-divider">SUBSYSTEMS</div>
+        <button class="nav-btn" data-tab="reality">
+          <span class="nav-index">01</span>
+          <span>Proof of Reality &amp; Gossip</span>
+        </button>
+        <button class="nav-btn" data-tab="chameleon">
+          <span class="nav-index">02</span>
+          <span>Quantum Chameleon FW</span>
+        </button>
+        <button class="nav-btn" data-tab="compiler">
+          <span class="nav-index">03</span>
+          <span>AI-to-Qubit Compiler</span>
+        </button>
+        <button class="nav-btn" data-tab="dreamer">
+          <span class="nav-index">04</span>
+          <span>Quantum Dreamer QAOA</span>
+        </button>
+        <button class="nav-btn" data-tab="entropy">
+          <span class="nav-index">05</span>
+          <span>Quantum Entropy &amp; Audit</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="kv-mini">
+          <span>Node ID</span>
+          <strong id="sideNodeId">--</strong>
+        </div>
+        <div class="kv-mini">
+          <span>Key Version</span>
+          <strong id="sideKeyVer">--</strong>
+        </div>
+        <div class="kv-mini">
+          <span>Uptime</span>
+          <strong id="sideUptime">--</strong>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace -->
+    <div class="main-area">
+      <!-- Top Telemetry Bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="pill pill-live" id="sseStatusPill">CONNECTING SSE...</span>
+          <span class="pill pill-mode" id="lifecyclePill">MODE: DAY</span>
+          <span class="pill pill-tier" id="tierPill">TIER: STANDARD</span>
+          <span class="pill pill-subtle" id="auditPill">AUDIT: VERIFYING</span>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-sm btn-outline" id="toggleModeBtn" title="Switch Day / Night Operating Mode">
+            Switch Day / Night
+          </button>
+          <button class="btn btn-sm btn-outline" id="refreshAllBtn">
+            Refresh Snapshot
+          </button>
+          <button class="btn btn-sm btn-ghost" id="authTokenBtn" title="Set Dashboard Bearer Token">
+            Auth Token
+          </button>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- TAB 1: MISSION OVERVIEW -->
+        <section class="tab-panel active" id="tab-overview">
+          <div class="section-header">
+            <div>
+              <h1>Real-Time Platform Oversight</h1>
+              <p>Live telemetry across the microkernel, NIST PQC engines, Edge-AI pipelines, and multi-cloud QPU schedulers.</p>
+            </div>
+            <button class="btn btn-primary" id="runDoctorBtn">Run System Diagnostics</button>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Host CPU Load</div>
+              <div class="kpi-value" id="kpiCpu">0.0%</div>
+              <div class="meter"><div class="meter-fill" id="meterCpu" style="width:0%"></div></div>
+              <div class="kpi-sub" id="kpiCpuSub">-- cores</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">System &amp; Process Memory</div>
+              <div class="kpi-value" id="kpiRam">0.0%</div>
+              <div class="meter"><div class="meter-fill meter-cyan" id="meterRam" style="width:0%"></div></div>
+              <div class="kpi-sub" id="kpiRamSub">RSS -- MB</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Merkle Anchored Stamps</div>
+              <div class="kpi-value" id="kpiMerkle">0</div>
+              <div class="kpi-sub mono" id="kpiMerkleRoot">root: --</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Quantum Dreamer Queue</div>
+              <div class="kpi-value" id="kpiDreamQueue">0 pending</div>
+              <div class="kpi-sub" id="kpiDreamSub">0 solved · 0 failed</div>
+            </div>
+          </div>
+
+          <div class="subsystems-grid" id="subsystemCards"></div>
+
+          <div class="two-col">
+            <!-- Live EventBus Stream -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Live EventBus Stream</h2>
+                  <span class="card-sub">Every validated EventEnvelope flowing across Q-Aegis</span>
+                </div>
+                <div class="inline-controls">
+                  <input type="text" id="eventFilterInput" class="input input-sm" placeholder="Filter topic (e.g. reality_stamp)" />
+                  <button class="btn btn-sm btn-outline" id="pauseEventsBtn">Pause</button>
+                  <button class="btn btn-sm btn-ghost" id="clearEventsBtn">Clear</button>
+                </div>
+              </div>
+              <div class="event-feed" id="liveEventFeed"></div>
+            </div>
+
+            <!-- System Doctor & Hardware Readiness -->
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>System Integrity &amp; Hardware Matrix</h2>
+                  <span class="card-sub">NIST FIPS 203/204/205, SQLite WAL hashes, HSM/TPM2 &amp; QPU registry</span>
+                </div>
+              </div>
+              <div id="doctorMatrix" class="matrix-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: CONFIGURATION CENTER ("CONFIGURE EVERYTHING") -->
+        <section class="tab-panel" id="tab-config">
+          <div class="section-header">
+            <div>
+              <h1>Live Configuration Center</h1>
+              <p>Inspect, validate with Pydantic v2, hot-reload across running services, and persist every Q-Aegis setting.</p>
+            </div>
+            <div class="inline-controls">
+              <button class="btn btn-ghost" id="resetConfigBtn">Reset Defaults</button>
+              <button class="btn btn-outline" id="reloadConfigBtn">Reload Current</button>
+              <button class="btn btn-outline" id="applyMemoryConfigBtn">Apply Live (Memory Only)</button>
+              <button class="btn btn-primary" id="saveConfigBtn">Apply Live &amp; Save YAML</button>
+            </div>
+          </div>
+
+          <div class="alert-banner hidden" id="configAlert"></div>
+
+          <div class="config-meta-bar">
+            <span>Active Runtime YAML Path: <code id="configPathLabel">--</code></span>
+            <div class="inline-controls">
+              <button class="btn btn-sm btn-outline" id="toggleYamlEditorBtn">Toggle Raw YAML Editor</button>
+              <button class="btn btn-sm btn-outline" id="downloadYamlBtn">Download qaegis.yaml</button>
+            </div>
+          </div>
+
+          <div class="card hidden" id="rawYamlCard" style="margin-bottom: 1.25rem;">
+            <div class="card-header">
+              <div>
+                <h2>Raw YAML Configuration Editor</h2>
+                <span class="card-sub">Edit full hierarchical YAML directly and apply with strict validation</span>
+              </div>
+              <button class="btn btn-sm btn-primary" id="applyRawYamlBtn">Validate &amp; Apply YAML</button>
+            </div>
+            <textarea id="rawYamlTextarea" class="code-textarea" rows="18" spellcheck="false"></textarea>
+          </div>
+
+          <div class="config-sections-grid" id="configFormContainer"></div>
+        </section>
+
+        <!-- TAB 3: IDENTITY, KEYRING & CBOM -->
+        <section class="tab-panel" id="tab-identity">
+          <div class="section-header">
+            <div>
+              <h1>Post-Quantum Identity, Key Rotation &amp; CBOM</h1>
+              <p>Manage NIST FIPS 203/204/205 + X25519 keys, zero-downtime rotation, hardware sealing, and CycloneDX 1.6 CBOMs.</p>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Active Device Identity Bundle</h2>
+              </div>
+              <div id="identityActiveDetails" class="matrix-list"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Zero-Downtime Key Rotation</h2>
+                  <span class="card-sub">Rotates ML-DSA-65, SLH-DSA, ML-KEM-768 &amp; X25519 while archiving public verification keys</span>
+                </div>
+              </div>
+              <form id="rotateKeysForm" class="form-stack">
+                <div class="form-row">
+                  <label>Hardware Seal Backend</label>
+                  <select id="rotSealBackend" class="input">
+                    <option value="none">None (0o600 Atomic Keystore)</option>
+                    <option value="pkcs11">PKCS#11 HSM / SoftHSM2</option>
+                    <option value="tpm2">Linux TPM 2.0 (/dev/tpmrm0)</option>
+                  </select>
+                </div>
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>PKCS#11 Token Label (optional)</label>
+                    <input type="text" id="rotTokenLabel" class="input" placeholder="qaegis" />
+                  </div>
+                  <div>
+                    <label>PKCS#11 User PIN (optional)</label>
+                    <input type="password" id="rotPin" class="input" placeholder="Uses QAEGIS_PKCS11_PIN if empty" />
+                  </div>
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="rotRemovePlain" />
+                  <span>Remove unsealed secret JSON after hardware sealing</span>
+                </label>
+                <button type="submit" class="btn btn-primary">Rotate PQC Keys Now</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Historical Trust Keyring (Zero-Downtime Verification Lineage)</h2>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="keyringTable">
+                <thead>
+                  <tr>
+                    <th>Version</th>
+                    <th>Key ID</th>
+                    <th>Primary Sig</th>
+                    <th>ML-DSA Fingerprint</th>
+                    <th>Created (UTC)</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Cryptographic Bill of Materials (CBOM)</h2>
+                <span class="card-sub">Standards-compliant CycloneDX 1.6 &amp; Native CBOM inventory</span>
+              </div>
+              <div class="inline-controls">
+                <select id="cbomFormatSelect" class="input input-sm">
+                  <option value="cyclonedx">CycloneDX 1.6 JSON</option>
+                  <option value="json">Native Q-Aegis JSON</option>
+                </select>
+                <button class="btn btn-sm btn-outline" id="loadCbomBtn">Generate CBOM</button>
+                <button class="btn btn-sm btn-primary" id="downloadCbomBtn">Download JSON</button>
+              </div>
+            </div>
+            <pre class="code-block" id="cbomOutput">Click "Generate CBOM" to inspect live cryptographic assets and NIST OIDs.</pre>
+          </div>
+        </section>
+
+        <!-- TAB 4: MODULE 1 — PROOF OF REALITY & GOSSIP -->
+        <section class="tab-panel" id="tab-reality">
+          <div class="section-header">
+            <div>
+              <h1>01 · Proof of Reality &amp; P2P Merkle Gossip</h1>
+              <p>Live QRNG entropy + NIST SP 800-22/90B health checks + ML-DSA-65 / SLH-DSA signatures + RFC 6962 Merkle proofs.</p>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Sign Edge-AI Perception Stamp</h2>
+              </div>
+              <form id="createStampForm" class="form-stack">
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Sensor ID</label>
+                    <input type="text" id="stampSensor" class="input" value="lidar-front-01" required />
+                  </div>
+                  <div>
+                    <label>Perception Label</label>
+                    <input type="text" id="stampLabel" class="input" value="obstacle_vehicle" required />
+                  </div>
+                </div>
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Confidence [0.0 – 1.0]</label>
+                    <input type="number" id="stampConf" class="input" value="0.98" min="0" max="1" step="0.01" required />
+                  </div>
+                  <div>
+                    <label>Metadata JSON</label>
+                    <input type="text" id="stampMeta" class="input" value='{"distance_m": 8.4, "velocity_mps": -3.1}' />
+                  </div>
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="stampStateless" />
+                  <span>Sign with stateless hash backup (NIST FIPS 205 SLH-DSA-SHA2-128f)</span>
+                </label>
+                <button type="submit" class="btn btn-primary">Harvest QRNG &amp; Sign Reality Stamp</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Offline Cryptographic Verifier</h2>
+                  <span class="card-sub">Verifies SHA-256, TrustKeyring, PQC signature &amp; leaf-bound Merkle proof</span>
+                </div>
+                <button class="btn btn-sm btn-primary" id="verifyStampBtn">Verify Stamp JSON</button>
+              </div>
+              <textarea id="verifyStampInput" class="code-textarea" rows="8" placeholder="Create a stamp on the left or paste any RealityStamp JSON here..."></textarea>
+              <div id="verifyStampResult" class="result-box"></div>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>NIST SP 800-22 &amp; SP 800-90B QRNG Health</h2>
+                  <span class="card-sub">Multi-source XOR-mixed quantum randomness validation</span>
+                </div>
+                <button class="btn btn-sm btn-outline" id="runQrngBtn">Harvest 128 B &amp; Validate</button>
+              </div>
+              <div id="qrngResult"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Multi-Node Merkle Root Gossip</h2>
+                  <span class="card-sub">ML-DSA-65 signed checkpoints &amp; split-view equivocation monitor</span>
+                </div>
+                <button class="btn btn-sm btn-outline" id="signGossipBtn">Sign Local Checkpoint</button>
+              </div>
+              <div id="gossipResult"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Persisted RFC 6962 Merkle Leaves (SQLite WAL)</h2>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="merkleLeavesTable">
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Stamp ID</th>
+                    <th>Sensor / Label</th>
+                    <th>Algorithm</th>
+                    <th>Leaf Hash</th>
+                    <th>Created (UTC)</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 5: MODULE 2 — QUANTUM CHAMELEON FIREWALL -->
+        <section class="tab-panel" id="tab-chameleon">
+          <div class="section-header">
+            <div>
+              <h1>02 · Quantum Chameleon Adaptive Firewall</h1>
+              <p>Real-time IsolationForest anomaly + ONNX HNDL risk classification dynamically switching X25519 ↔ Hybrid ML-KEM-768 + ML-DSA-65.</p>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Live Packet Protection &amp; Risk Inspector</h2>
+              </div>
+              <form id="chameleonForm" class="form-stack">
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Network Protocol</label>
+                    <select id="chamProtocol" class="input">
+                      <option value="lan">lan (Trusted Local Link)</option>
+                      <option value="wan" selected>wan (Public Internet)</option>
+                      <option value="cellular">cellular (5G / LTE)</option>
+                      <option value="satellite">satellite (High HNDL Exposure)</option>
+                      <option value="untrusted_mesh">untrusted_mesh (Ad-Hoc Tactical)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Data Sensitivity Classification</label>
+                    <select id="chamSensitivity" class="input">
+                      <option value="public">public</option>
+                      <option value="internal">internal</option>
+                      <option value="confidential" selected>confidential</option>
+                      <option value="secret">secret</option>
+                      <option value="top_secret">top_secret</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Confidentiality Retention (Years)</label>
+                    <input type="number" id="chamRetention" class="input" value="8.0" min="0" max="100" step="0.5" />
+                  </div>
+                  <div>
+                    <label>Policy Floor Override (optional)</label>
+                    <select id="chamFloor" class="input">
+                      <option value="">Automatic AI Decision</option>
+                      <option value="STANDARD">STANDARD</option>
+                      <option value="ELEVATED">ELEVATED</option>
+                      <option value="QUANTUM_CRITICAL">QUANTUM_CRITICAL</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label>Telemetry / Command Payload</label>
+                  <textarea id="chamPayload" class="code-textarea" rows="3">{"waypoint":[59.3293,18.0686],"altitude_m":120.5,"command":"engage_autonomous_patrol"}</textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Assess Threat &amp; Execute Hybrid PQC Round-Trip</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Threat Assessment &amp; Cryptographic Envelope</h2>
+              </div>
+              <div id="chameleonResult" class="result-box">
+                Submit a packet on the left to execute live AI risk scoring and hybrid encryption/decryption verification.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 6: MODULE 3 — AI-TO-QUBIT COMPILER -->
+        <section class="tab-panel" id="tab-compiler">
+          <div class="section-header">
+            <div>
+              <h1>03 · AI-to-Qubit Neural Compiler</h1>
+              <p>Train self-contained ONNX autoencoders and compile high-dimensional sensor vectors into bounded [-π, π] OpenQASM 3.0 &amp; PennyLane circuits.</p>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Sensor Tensor → OpenQASM 3.0 &amp; PennyLane</h2>
+              </div>
+              <form id="compileVectorForm" class="form-stack">
+                <div class="form-row">
+                  <label>Comma-Separated Sensor Feature Vector</label>
+                  <input type="text" id="compVector" class="input mono" value="0.82, -0.45, 1.15, 0.08, -0.91, 0.64, 0.33, -0.27, 0.51, -0.62, 0.19, 0.77, -0.38, 0.44, -0.12, 0.95" />
+                </div>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="compPennyLane" checked />
+                  <span>Execute noisy PennyLane simulation (state probabilities &amp; Pauli-Z expectations)</span>
+                </label>
+                <button type="submit" class="btn btn-primary">Compile Tensor to Quantum Circuit</button>
+              </form>
+              <div id="compilerMetrics" class="result-box" style="margin-top: 1rem;"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Train &amp; Export Self-Contained ONNX Autoencoder</h2>
+                  <span class="card-sub">Fuses standardization stats into ONNX graph for sub-0.1ms inference</span>
+                </div>
+              </div>
+              <form id="trainEncoderForm" class="form-stack">
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Training Epochs</label>
+                    <input type="number" id="trainEpochs" class="input" value="30" min="5" max="200" />
+                  </div>
+                  <div>
+                    <label>Sample Batch Size</label>
+                    <input type="number" id="trainSamples" class="input" value="64" min="16" max="512" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-outline">Train PyTorch Autoencoder &amp; Activate ONNX</button>
+              </form>
+              <div id="trainEncoderResult" class="result-box" style="margin-top: 1rem;"></div>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Generated OpenQASM 3.0 Program</h2>
+                <button class="btn btn-sm btn-ghost" id="copyQasmBtn">Copy QASM</button>
+              </div>
+              <pre class="code-block" id="qasmOutput">Compile a sensor vector above to view transpiled OpenQASM 3.0 output.</pre>
+            </div>
+            <div class="card">
+              <div class="card-header">
+                <h2>Compiled Qubit Angles &amp; PennyLane Observables</h2>
+              </div>
+              <div id="pennylaneViz"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 7: MODULE 4 — QUANTUM DREAMER (QAOA + ZNE/TREX + FEDERATED) -->
+        <section class="tab-panel" id="tab-dreamer">
+          <div class="section-header">
+            <div>
+              <h1>04 · Quantum Dreamer — Day/Night QAOA &amp; ZNE/TREX</h1>
+              <p>Queue combinatorial problems in Day Mode, solve via multi-cloud QAOA + ZNE/TREX mitigation in Night Mode, and audit policy rollbacks.</p>
+            </div>
+          </div>
+
+          <div class="three-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>1. Enqueue Day-Mode QUBO</h2>
+              </div>
+              <form id="enqueueDreamForm" class="form-stack">
+                <div class="form-row">
+                  <label>Combinatorial Problem Type</label>
+                  <select id="dreamKind" class="input">
+                    <option value="maxcut">Weighted Max-Cut Graph Routing</option>
+                    <option value="scheduling">Edge Task Scheduling (Conflict-Aware)</option>
+                    <option value="resource_allocation">Quadratic Resource Allocation</option>
+                  </select>
+                </div>
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Nodes / Variables</label>
+                    <input type="number" id="dreamNodes" class="input" value="4" min="3" max="8" />
+                  </div>
+                  <div>
+                    <label>Priority [0–100]</label>
+                    <input type="number" id="dreamPriority" class="input" value="85" min="0" max="100" />
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label>Target Local AI Policy</label>
+                  <input type="text" id="dreamPolicy" class="input" value="edge_routing_policy" />
+                </div>
+                <button type="submit" class="btn btn-outline">Queue Problem in SQLite WAL</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>2. Run Night-Mode QAOA Batch</h2>
+              </div>
+              <form id="runNightForm" class="form-stack">
+                <div class="form-row">
+                  <label>Quantum Execution Backend</label>
+                  <select id="dreamBackend" class="input">
+                    <option value="aer_statevector">aer_statevector (Exact Statevector)</option>
+                    <option value="aer_noisy">aer_noisy (Depolarizing + Readout Noise)</option>
+                    <option value="aws_braket">aws_braket (LocalSimulator / AWS QPU)</option>
+                    <option value="ionq">ionq (IonQ Cloud v0.3 / Fallback)</option>
+                    <option value="ibm_runtime">ibm_runtime (SamplerV2 / Fallback)</option>
+                  </select>
+                </div>
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Error Mitigation</label>
+                    <select id="dreamMitigation" class="input">
+                      <option value="none">none</option>
+                      <option value="zne">zne (Unitary Folding)</option>
+                      <option value="trex">trex (Readout Twirl)</option>
+                      <option value="both">both (ZNE + TREX)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label>Max Batch Size</label>
+                    <input type="number" id="dreamMaxBatch" class="input" value="4" min="1" max="16" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Execute Night-Mode QAOA Now</button>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>3. Federated Fleet Scheduler</h2>
+              </div>
+              <form id="runFederatedForm" class="form-stack">
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Edge Fleet Nodes</label>
+                    <input type="number" id="fedNodes" class="input" value="4" min="2" max="8" />
+                  </div>
+                  <div>
+                    <label>QPU Budget (s)</label>
+                    <input type="number" id="fedBudget" class="input" value="60" min="5" max="600" />
+                  </div>
+                </div>
+                <p class="help-text">Deduplicates isomorphic QUBOs across edge drones and signs ML-DSA-65 policy broadcasts.</p>
+                <button type="submit" class="btn btn-outline">Run Federated Fleet Cycle</button>
+              </form>
+              <div id="federatedResult" class="result-box" style="margin-top:0.75rem;"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Queued &amp; Solved Combinatorial Problems</h2>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="dreamProblemsTable">
+                <thead>
+                  <tr>
+                    <th>Problem ID</th>
+                    <th>Type</th>
+                    <th>Priority</th>
+                    <th>Status</th>
+                    <th>Backend</th>
+                    <th>Optimal Bitstring</th>
+                    <th>Energy / Approx Ratio</th>
+                    <th>Mitigated &lt;E&gt;</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Validated AI Policy Snapshots &amp; Rollback Guard History</h2>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="policySnapshotsTable">
+                <thead>
+                  <tr>
+                    <th>Version</th>
+                    <th>Policy Name</th>
+                    <th>Validation Score</th>
+                    <th>Baseline Score</th>
+                    <th>Active</th>
+                    <th>Source Problem</th>
+                    <th>Snapshot Hash</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 8: MODULE 5 — QUANTUM ENTROPY, AUDIT LEDGER & PROMETHEUS -->
+        <section class="tab-panel" id="tab-entropy">
+          <div class="section-header">
+            <div>
+              <h1>05 · Quantum Entropy Engine, Audit Ledger &amp; Metrics</h1>
+              <p>Harvest entangled quantum distributions, drive non-deterministic AI exploration, verify the SHA-256 audit chain, and inspect Prometheus metrics.</p>
+            </div>
+          </div>
+
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <h2>Entangled Circuit Distribution Harvester</h2>
+              </div>
+              <form id="harvestEntropyForm" class="form-stack">
+                <div class="form-row three-inputs">
+                  <div>
+                    <label>Qubits [2–12]</label>
+                    <input type="number" id="entQubits" class="input" value="5" min="2" max="12" />
+                  </div>
+                  <div>
+                    <label>Shots</label>
+                    <input type="number" id="entShots" class="input" value="512" min="64" max="8192" />
+                  </div>
+                  <div>
+                    <label>Noise Rate</label>
+                    <input type="number" id="entNoise" class="input" value="0.01" min="0" max="0.2" step="0.005" />
+                  </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Harvest Entangled Quantum Pool</button>
+              </form>
+              <div id="entropyHarvestResult" class="result-box" style="margin-top: 1rem;"></div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <h2>Quantum AI Exploration &amp; Ollama Bridge</h2>
+              </div>
+              <div class="inline-controls" style="margin-bottom: 0.9rem;">
+                <button class="btn btn-sm btn-outline" id="runSampleLogitsBtn">Sample LLM Nucleus Token</button>
+                <button class="btn btn-sm btn-outline" id="runEvolutionBtn">Run Quantum Evolution (20 Gen)</button>
+                <button class="btn btn-sm btn-outline" id="checkOllamaBtn">Check Ollama Health</button>
+              </div>
+              <div id="entropyAgentResult" class="result-box">
+                Trigger an exploration operation above to test quantum-seeded LLM token sampling, evolutionary optimization, or local Ollama status.
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Tamper-Evident SHA-256 Hash-Chained Audit Ledger</h2>
+                <span class="card-sub" id="auditChainBanner">Verifying SQLite WAL hash chain...</span>
+              </div>
+              <button class="btn btn-sm btn-outline" id="refreshAuditBtn">Verify &amp; Refresh Ledger</button>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="auditLedgerTable">
+                <thead>
+                  <tr>
+                    <th>Seq</th>
+                    <th>Timestamp (UTC)</th>
+                    <th>Event Type</th>
+                    <th>Actor</th>
+                    <th>Prev Hash</th>
+                    <th>Entry Hash</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Live Prometheus Metrics Exposition</h2>
+              <button class="btn btn-sm btn-outline" id="loadMetricsBtn">Refresh /metrics</button>
+            </div>
+            <pre class="code-block" id="prometheusOutput">Click "Refresh /metrics" to inspect live Prometheus counters, gauges, and histograms.</pre>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- Auth Token Modal -->
+  <div class="modal-backdrop hidden" id="authModal">
+    <div class="modal-card">
+      <h3>Dashboard Authentication Token</h3>
+      <p>Enter the configured <code>dashboard.auth_token</code> / <code>QAEGIS_DASHBOARD_TOKEN</code> to authorize API &amp; SSE requests.</p>
+      <input type="password" id="authTokenInput" class="input" placeholder="Bearer token..." />
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="closeAuthModalBtn">Cancel</button>
+        <button class="btn btn-primary" id="saveAuthTokenBtn">Save &amp; Reconnect</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

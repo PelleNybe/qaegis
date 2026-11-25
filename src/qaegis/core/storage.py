@@ -622,6 +622,103 @@ class StorageEngine:
                 return (False, len(rows))
         return (True, len(rows))
 
+    async def list_audit_events(self, limit: int = 100) -> list[AuditRecord]:
+        """Return the most recent hash-chained audit events ordered newest-first."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT seq, created_at, event_type, actor, payload_json, prev_hash, entry_hash
+            FROM audit_events
+            ORDER BY seq DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        )
+        rows = list(await cursor.fetchall())
+        return [
+            AuditRecord(
+                seq=int(r["seq"]),
+                created_at=datetime.fromisoformat(str(r["created_at"])),
+                event_type=str(r["event_type"]),
+                actor=str(r["actor"]),
+                payload=dict(orjson.loads(r["payload_json"])),
+                prev_hash=str(r["prev_hash"]),
+                entry_hash=str(r["entry_hash"]),
+            )
+            for r in rows
+        ]
+
+    async def list_merkle_leaves(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return persisted Proof-of-Reality Merkle leaves ordered newest-first."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT leaf_index, stamp_id, created_at, leaf_hash, algorithm,
+                   payload_json, signature_b64, public_key_fingerprint
+            FROM merkle_leaves
+            ORDER BY leaf_index DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        )
+        rows = list(await cursor.fetchall())
+        return [
+            {
+                "leaf_index": int(r["leaf_index"]) - 1,
+                "stamp_id": str(r["stamp_id"]),
+                "created_at": str(r["created_at"]),
+                "leaf_hash": str(r["leaf_hash"]),
+                "algorithm": str(r["algorithm"]),
+                "payload": dict(orjson.loads(r["payload_json"])),
+                "signature_b64": str(r["signature_b64"]),
+                "public_key_fingerprint": str(r["public_key_fingerprint"]),
+            }
+            for r in rows
+        ]
+
+    async def list_dream_problems(self, limit: int = 50) -> list[DreamProblemRecord]:
+        """Return queued, solved, and failed Quantum Dreamer problems ordered newest-first."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT * FROM dream_problems
+            ORDER BY updated_at DESC, priority DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        )
+        rows = list(await cursor.fetchall())
+        return [self._row_to_dream_record(r) for r in rows]
+
+    async def list_policy_snapshots(self, limit: int = 50) -> list[PolicySnapshotRecord]:
+        """Return versioned AI policy snapshots ordered newest-first."""
+        conn = self._require_conn()
+        cursor = await conn.execute(
+            """
+            SELECT * FROM policy_snapshots
+            ORDER BY version DESC
+            LIMIT ?;
+            """,
+            (limit,),
+        )
+        rows = list(await cursor.fetchall())
+        return [
+            PolicySnapshotRecord(
+                version=int(r["version"]),
+                created_at=datetime.fromisoformat(str(r["created_at"])),
+                policy_name=str(r["policy_name"]),
+                weights=dict(orjson.loads(r["weights_json"])),
+                validation_score=float(r["validation_score"]),
+                baseline_score=float(r["baseline_score"]),
+                active=bool(r["active"]),
+                source_problem_id=str(r["source_problem_id"])
+                if r["source_problem_id"] is not None
+                else None,
+                snapshot_hash=str(r["snapshot_hash"]),
+            )
+            for r in rows
+        ]
+
     async def list_gossip_checkpoints(
         self,
         peer_node_id: str | None = None,

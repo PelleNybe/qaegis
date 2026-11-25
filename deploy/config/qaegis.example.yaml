@@ -51,6 +51,14 @@ telemetry:
   log_level: "INFO"                      # DEBUG | INFO | WARNING | ERROR | CRITICAL
   log_json: true
 
+dashboard:
+  enabled: false                         # Set true (or run `qaegis dashboard`) for Web UI
+  host: "127.0.0.1"
+  port: 8080
+  auth_token: null                       # Or set QAEGIS_DASHBOARD_TOKEN env var
+  sse_heartbeat_s: 10.0
+  event_history_limit: 250
+
 reality_stamp:
   # Optional network QRNG API URL (leave null to use local Qiskit Hadamard QRNG + Linux CSPRNG)
   qrng_http_url: null

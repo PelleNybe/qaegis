@@ -58,10 +58,17 @@ The shipped unit enforces `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `Prot
   qaegis cbom --format cyclonedx --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.cdx.json
   ```
 
-- **Interactive Live Diagnostics Demo:**
+- **Interactive Live Diagnostics Demo & Web Mission-Control Console:**
 
   ```bash
+  # Terminal showcase
   qaegis demo
+
+  # Launch the full Live Web Mission-Control Dashboard & Hot-Config UI on http://127.0.0.1:8080
+  qaegis dashboard --host 127.0.0.1 --port 8080
+
+  # Optional: protect remote/tunneled dashboard access with a constant-time Bearer token
+  QAEGIS_DASHBOARD_TOKEN="strong-secret-token" qaegis dashboard --host 127.0.0.1 --port 8080
   ```
 
 - **Hardware Sealing (PKCS#11 HSM / SoftHSM2 or Linux TPM 2.0):**

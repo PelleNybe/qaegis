@@ -5,6 +5,13 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-11-24
+
+### Added
+- **Live Web Mission-Control Dashboard (`qaegis.dashboard`):** Full-featured, zero-CDN offline-capable 8-tab web application (`Mission Overview`, `Configuration Center`, `PQC Identity & CBOM`, `Proof of Reality & Gossip`, `Quantum Chameleon FW`, `AI-to-Qubit Compiler`, `Quantum Dreamer QAOA`, and `Quantum Entropy & Audit`) served via async `h11` HTTP/1.1 + Server-Sent Events (`/api/events/stream`).
+- **Hot-Reloadable Full Configuration Center:** Inspect, validate via Pydantic v2, hot-apply in memory across all running services, and atomically persist every `QAegisConfig` parameter or raw YAML document directly from the browser (`/api/config`, `/api/config/yaml`, `/api/config/reset`), backed by SHA-256 hash-chained `config.updated` audit records.
+- **Interactive Subsystem Control Plane & CLI Integration:** Added `qaegis dashboard [--host] [--port] [--auth-token]` and `qaegis run --dashboard [--dashboard-port]`, optional constant-time Bearer/`X-QAegis-Token` authentication, and SQLite WAL inspection queries (`list_audit_events`, `list_merkle_leaves`, `list_dream_problems`, `list_policy_snapshots`).
+
 ## [0.5.0] - 2026-11-24
 
 ### Security

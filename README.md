@@ -1,6 +1,6 @@
 # Q-Aegis
 
-**Quantum-Secured Autonomous Edge-AI Platform (v0.5.0)**
+**Quantum-Secured Autonomous Edge-AI Platform (v0.6.0)**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/PelleNybe/qaegis/ci.yml?label=CI&logo=github)](https://github.com/PelleNybe/qaegis/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/Docs-GitHub_Pages-0EA5E9?logo=materialformkdocs&logoColor=white)](https://pellenybe.github.io/qaegis/)
@@ -31,6 +31,16 @@ qaegis demo
 5. Solves a 4-qubit Max-Cut **QAOA** problem with **ZNE + TREX** error mitigation on noisy `AerSimulator` and prints real measured error reduction.
 
 *(Use `qaegis demo --fast` for ~3-second CI smoke tests.)*
+
+### Launch the Live Web Mission-Control Dashboard (`qaegis dashboard`)
+
+Oversee every running subsystem, stream live `EventBus` envelopes over Server-Sent Events (SSE), execute PQC key rotations, Reality Stamps, Chameleon packet protection, ONNX/OpenQASM 3.0 compilation, and Night-Mode QAOA + ZNE/TREX jobs, and **configure every Q-Aegis setting live with YAML persistence**:
+
+```bash
+qaegis dashboard --host 127.0.0.1 --port 8080
+```
+
+*(Or attach the dashboard directly to the background daemon via `qaegis run --dashboard`.)*
 
 ---
 
@@ -199,6 +209,7 @@ Measured locally via `.venv/bin/python benchmarks/run_benchmarks.py` ([benchmark
 - [x] **v0.3.0:** Distributed multi-node ML-DSA-65 Merkle root gossiping with equivocation detection, federated Night-Mode QAOA fleet scheduling with isomorphism deduplication & budget enforcement, and Qiskit ZNE + TREX error mitigation pipelines.
 - [x] **v0.4.0:** Zero-downtime PQC key rotation with historical `keyring.json` verification (`qaegis rotate-keys`), interactive `qaegis demo` live showcase, CycloneDX 1.6 CBOM export (`qaegis cbom --format cyclonedx`), Grafana v10+ dashboard & Prometheus alert rules, >=90% branch+statement coverage gate, and automated wheel/sdist build verification.
 - [x] **v0.5.0:** Comprehensive security, concurrency & performance evolution — strict Merkle leaf-to-stamp binding, Chameleon replay/cipher-suite/recipient defense + keyring support, serialized SQLite WAL transactions + dream/policy integrity audits, EventBus ZMQ loopback deduplication, zeroized key use-after-retire guards, self-contained ONNX standardization export, **11x–16x faster QAOA** via parameterized circuit caching, batched ZNE+TREX twirling, thread-safe vectorized `QuantumEntropyPool`, and SoftHSM2 CI coverage.
+- [x] **v0.6.0:** **Live Web Mission-Control Dashboard & Hot-Reconfiguration Control Plane (`qaegis dashboard` / `qaegis run --dashboard`)** — offline-ready 8-tab browser UI powered by async HTTP/1.1 + Server-Sent Events (SSE) overseeing all 5 subsystems, live `EventBus` envelopes, host/process telemetry, interactive PQC/QRNG/Chameleon/Compiler/QAOA/Entropy controls, SHA-256 audit ledger verification, and full Pydantic-validated hot-reload + YAML configuration editing.
 
 ---
 
@@ -211,7 +222,7 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md]
   title        = {Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform},
   author       = {{Q-Aegis Contributors}},
   year         = {2026},
-  version      = {0.5.0},
+  version      = {0.6.0},
   license      = {Apache-2.0},
   url          = {https://github.com/PelleNybe/qaegis}
 }

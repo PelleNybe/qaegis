@@ -65,6 +65,17 @@ class TelemetryConfig(BaseModel):
     log_json: bool = True
 
 
+class DashboardConfig(BaseModel):
+    """Configuration for the live Q-Aegis Web Mission-Control Dashboard."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = Field(default=8080, ge=0, le=65535)
+    auth_token: str | None = None
+    sse_heartbeat_s: float = Field(default=10.0, gt=0.0, le=120.0)
+    event_history_limit: int = Field(default=250, ge=10, le=5000)
+
+
 class RealityStampConfig(BaseModel):
     """Configuration for Module 1: Proof of Reality."""
 
@@ -164,6 +175,7 @@ class QAegisConfig(BaseSettings):
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     reality_stamp: RealityStampConfig = Field(default_factory=RealityStampConfig)
     chameleon_fw: ChameleonConfig = Field(default_factory=ChameleonConfig)
     qubit_compiler: QubitCompilerConfig = Field(default_factory=QubitCompilerConfig)

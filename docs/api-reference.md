@@ -45,3 +45,8 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.quantum_entropy.harvester
 ::: qaegis.modules.quantum_entropy.sampler
 ::: qaegis.modules.quantum_entropy.ollama_bridge
+
+## Live Web Mission-Control Dashboard
+
+::: qaegis.dashboard.runtime
+::: qaegis.dashboard.server

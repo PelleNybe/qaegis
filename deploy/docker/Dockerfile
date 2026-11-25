@@ -60,7 +60,7 @@ RUN groupadd --system --gid 10001 qaegis \
 
 USER qaegis
 
-EXPOSE 9108
+EXPOSE 9108 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD ["qaegis", "doctor"]

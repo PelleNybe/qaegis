@@ -32,6 +32,7 @@ from qaegis.core.identity import IdentityManager, PublicIdentityBundle, TrustKey
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
+from qaegis.dashboard import DashboardKernelRuntime, DashboardServer
 from qaegis.demo import run_interactive_demo
 from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
 from qaegis.modules.quantum_dreamer.service import NightCycleReport, QuantumDreamerService
@@ -630,11 +631,91 @@ def entropy_cmd(
     console.print(table)
 
 
+@app.command("dashboard")
+def dashboard_cmd(
+    host: Annotated[
+        str | None,
+        typer.Option("--host", help="HTTP bind address (default from config: 127.0.0.1)."),
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", "-p", help="HTTP listen port (default from config: 8080)."),
+    ] = None,
+    auth_token: Annotated[
+        str | None,
+        typer.Option(
+            "--auth-token",
+            help="Optional Bearer token protecting API/SSE routes (or QAEGIS_DASHBOARD_TOKEN).",
+        ),
+    ] = None,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+    max_seconds: Annotated[
+        float | None,
+        typer.Option("--max-seconds", help="Optional auto-exit duration in seconds (for tests)."),
+    ] = None,
+) -> None:
+    """Launch the live Q-Aegis Web Mission-Control Dashboard with all 5 subsystems active."""
+    cfg = load_config(config_file)
+    configure_logging(cfg.telemetry)
+    cfg.ensure_directories()
+
+    async def _run_dashboard() -> None:
+        metrics = QAegisMetrics()
+        runtime = DashboardKernelRuntime(
+            config=cfg,
+            config_file_path=config_file,
+            metrics=metrics,
+        )
+        server = DashboardServer(
+            runtime=runtime,
+            host=host,
+            port=port,
+            auth_token=auth_token,
+        )
+        await server.start()
+        console.print(
+            f"[bold green]Q-Aegis Live Web Mission-Control Dashboard online at "
+            f"{server.url}[/bold green]"
+        )
+
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        if sys.platform != "win32":
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, stop_event.set)
+        try:
+            if max_seconds is not None:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(stop_event.wait(), timeout=max_seconds)
+            else:
+                await stop_event.wait()
+        finally:
+            if sys.platform != "win32":
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.remove_signal_handler(sig)
+            await server.stop()
+
+    import contextlib
+
+    asyncio.run(_run_dashboard())
+
+
 @app.command("run")
 def run_cmd(
     config_file: Annotated[
         Path | None,
         typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+    dashboard: Annotated[
+        bool,
+        typer.Option("--dashboard", help="Also serve the live Web Mission-Control Dashboard."),
+    ] = False,
+    dashboard_port: Annotated[
+        int | None,
+        typer.Option("--dashboard-port", help="Override HTTP port when --dashboard is enabled."),
     ] = None,
     max_ticks: Annotated[
         int | None,
@@ -703,6 +784,31 @@ def run_cmd(
         await dreamer_svc.start()
         await entropy_svc.start()
 
+        dash_server: DashboardServer | None = None
+        if dashboard or cfg.dashboard.enabled:
+            dash_runtime = DashboardKernelRuntime(
+                config=cfg,
+                config_file_path=config_file,
+                metrics=metrics,
+                bus=bus,
+                storage=storage,
+                lifecycle=lifecycle,
+                identity=identity,
+                reality_service=reality_svc,
+                chameleon_service=chameleon_svc,
+                compiler_service=compiler_svc,
+                dreamer_service=dreamer_svc,
+                entropy_service=entropy_svc,
+            )
+            dash_server = DashboardServer(
+                runtime=dash_runtime,
+                port=dashboard_port,
+            )
+            await dash_server.start()
+            console.print(
+                f"[bold cyan]Web Mission-Control Dashboard serving on {dash_server.url}[/bold cyan]"
+            )
+
         stop_event = asyncio.Event()
         loop = asyncio.get_running_loop()
         if sys.platform != "win32":
@@ -728,6 +834,8 @@ def run_cmd(
             if sys.platform != "win32":
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     loop.remove_signal_handler(sig)
+            if dash_server is not None:
+                await dash_server.stop()
             await lifecycle.shutdown()
             await reality_svc.stop()
             await storage.close()
