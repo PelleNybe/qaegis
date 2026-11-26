@@ -7,8 +7,8 @@ authors:
 repository-code: "https://github.com/PelleNybe/qaegis"
 url: "https://github.com/PelleNybe/qaegis"
 license: Apache-2.0
-version: "0.4.0"
-date-released: "2026-11-23"
+version: "0.7.0"
+date-released: "2026-11-26"
 keywords:
   - post-quantum cryptography
   - quantum computing
@@ -18,3 +18,5 @@ keywords:
   - slh-dsa
   - qaoa
   - openqasm3
+  - error-mitigation
+  - cyclonedx-cbom

@@ -6,6 +6,7 @@ import asyncio
 import os
 import tempfile
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -182,10 +183,16 @@ async def run_interactive_demo(
             tiers_seen: list[str] = []
             demo_flows = [
                 ("lan", "public", 0.1, b'{"battery_pct": 91}'),
-                ("wan", "confidential", 6.0, b"route_plan:" + os.urandom(64)),
+                (
+                    "lan",
+                    "confidential",
+                    5.5,
+                    b'{"route_id":"alpha-7","waypoints":[[59.33,18.06],[59.35,18.09]]}',
+                ),
                 ("satellite", "top_secret", 20.0, b"mission_orders:" + os.urandom(256)),
             ]
-            for proto, sens, years, body in demo_flows:
+            base_ts = datetime.now(UTC)
+            for idx, (proto, sens, years, body) in enumerate(demo_flows):
                 pkt = await fw_edge.protect(
                     TrafficObservation(
                         source=edge_id.node_id,
@@ -194,6 +201,7 @@ async def run_interactive_demo(
                         sensitivity=sens,  # type: ignore[arg-type]
                         payload_bytes=body,
                         long_term_retention_years=years,
+                        timestamp_utc=base_ts + timedelta(seconds=idx),
                     ),
                     recipient=ground_id.public_bundle(),
                 )
@@ -275,12 +283,12 @@ async def run_interactive_demo(
                     mode="both",
                     scale_factors=[1, 3] if fast else [1, 3, 5],
                     extrapolation="linear",
-                    num_twirls=8 if fast else 16,
+                    num_twirls=6 if fast else 16,
                     seed=42,
                 ).evaluate_expectation,
                 eval_qc,
                 ham,
-                1024 if fast else 4096,
+                512 if fast else 4096,
             )
             raw_err = abs(mit_res.unmitigated_energy - exact_e)
             mit_err = abs(mit_res.mitigated_energy - exact_e)

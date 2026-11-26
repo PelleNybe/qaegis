@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Literal
 
 import numpy as np
@@ -12,6 +13,15 @@ from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 
 SensitivityTag = Literal["public", "internal", "confidential", "secret", "top_secret"]
+
+
+class ThreatTier(StrEnum):
+    """Dynamic cryptographic protection tiers enforced by Quantum Chameleon."""
+
+    STANDARD = "STANDARD"
+    ELEVATED = "ELEVATED"
+    QUANTUM_CRITICAL = "QUANTUM_CRITICAL"
+
 
 _SENSITIVITY_WEIGHTS: dict[SensitivityTag, float] = {
     "public": 0.0,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import os
 import platform
@@ -72,8 +73,11 @@ from qaegis.modules.reality_stamp.gossip import MerkleGossipNode
 from qaegis.modules.reality_stamp.qrng import MultiSourceQrng
 from qaegis.modules.reality_stamp.service import RealityStampService
 from qaegis.modules.reality_stamp.signer import (
+    ArtifactSignatureBundle,
     RealitySigner,
     RealityStamp,
+    sign_artifact_bytes,
+    verify_artifact_bytes,
     verify_reality_stamp,
 )
 
@@ -841,6 +845,57 @@ class DashboardKernelRuntime:
         stamp = RealityStamp.model_validate(stamp_dict)
         keyring = self._identity_mgr.load_keyring()
         res = verify_reality_stamp(stamp, keyring=keyring, metrics=self._metrics)
+        return res.model_dump(mode="json")
+
+    async def sign_artifact_payload(
+        self,
+        artifact_name: str,
+        content_b64: str | None = None,
+        content_text: str | None = None,
+        use_stateless_hash_sig: bool = False,
+        annotations: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Sign an artifact (base64 binary or UTF-8 text) with QRNG + ML-DSA-65 / SLH-DSA."""
+        ident, reality_svc, *_rest = self._require_services()
+        if content_b64 is not None:
+            raw = base64.b64decode(content_b64)
+        else:
+            raw = (content_text or "").encode("utf-8")
+        qrng = await reality_svc._qrng.harvest(num_bytes=32)
+        bundle = await asyncio.to_thread(
+            sign_artifact_bytes,
+            raw,
+            ident,
+            artifact_name or "artifact.bin",
+            use_stateless_hash_sig,
+            qrng.raw_hex,
+            annotations,
+        )
+        await self._bus.publish(
+            topic="reality_stamp.artifact_signed",
+            source="dashboard.reality_stamp",
+            payload={
+                "artifact_name": bundle.artifact_name,
+                "size_bytes": bundle.size_bytes,
+                "algorithm": bundle.algorithm,
+                "sha256": bundle.sha256,
+            },
+        )
+        return bundle.model_dump(mode="json")
+
+    def verify_artifact_payload(
+        self,
+        bundle_dict: dict[str, Any],
+        content_b64: str | None = None,
+        content_text: str | None = None,
+    ) -> dict[str, Any]:
+        """Verify an artifact payload against its detached post-quantum ArtifactSignatureBundle."""
+        bundle = ArtifactSignatureBundle.model_validate(bundle_dict)
+        if content_b64 is not None:
+            raw = base64.b64decode(content_b64)
+        else:
+            raw = (content_text or "").encode("utf-8")
+        res = verify_artifact_bytes(raw, bundle, keyring=self._identity_mgr.load_keyring())
         return res.model_dump(mode="json")
 
     async def harvest_qrng(self, num_bytes: int = 64) -> dict[str, Any]:

@@ -1,10 +1,10 @@
 # Operator's Manual
 
-This manual guides site reliability engineers and field operators through deploying, securing, monitoring, and operating **Q-Aegis** in production.
+This manual guides site reliability engineers, DevSecOps teams, and field operators through deploying, securing, monitoring, and operating **Q-Aegis `v0.7.0`** in production.
 
 ---
 
-## 1. Production Deployment with `systemd`
+## 1. Bootstrapping Configuration & `systemd` Deployment
 
 1. Create a dedicated unprivileged system user and runtime directories:
 
@@ -15,10 +15,11 @@ This manual guides site reliability engineers and field operators through deploy
    sudo chmod 0700 /var/lib/qaegis/keys
    ```
 
-2. Copy and customize the production configuration:
+2. Copy or generate the production configuration (`developer`, `edge`, `fleet`, or `airgap` presets):
 
    ```bash
-   sudo cp deploy/config/qaegis.example.yaml /etc/qaegis/qaegis.yaml
+   qaegis init-config --profile edge -o /tmp/qaegis.yaml
+   sudo cp /tmp/qaegis.yaml /etc/qaegis/qaegis.yaml
    sudo chown root:qaegis /etc/qaegis/qaegis.yaml
    sudo chmod 0640 /etc/qaegis/qaegis.yaml
    ```
@@ -36,53 +37,58 @@ The shipped unit enforces `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `Prot
 
 ---
 
-## 2. Managing PQC Key Lifecycle & Rotation
+## 2. Live Web Mission-Control Dashboard & Hot Configuration
 
-- **Initial Key Generation:** `qaegis init-identity --config /etc/qaegis/qaegis.yaml` creates `device_identity.secret.json` (`0o600`) and `device_identity.public.json` (`0o644`).
-- **Zero-Downtime Key Rotation (`qaegis rotate-keys`):** Rotate ML-DSA-65, SLH-DSA, ML-KEM-768, and X25519 keys cleanly while keeping all pre-rotation Reality Stamps verifiable via the versioned trust keyring (`keys/keyring.json`, `0o600`):
+Q-Aegis ships an offline-ready 8-tab browser control plane (`qaegis dashboard` or `qaegis run --dashboard`) powered by async HTTP/1.1 + Server-Sent Events (SSE):
+
+```bash
+# Local loopback Mission Control (no token required on 127.0.0.1 by default)
+qaegis dashboard --host 127.0.0.1 --port 8080
+
+# Authenticated remote / SSH-tunneled Mission Control (constant-time Bearer check)
+QAEGIS_DASHBOARD_TOKEN="$(openssl rand -hex 32)" qaegis dashboard --host 127.0.0.1 --port 8080
+```
+
+From the **Configuration Center** tab, operators can edit every subsystem parameter or raw YAML, validate against the full Pydantic v2 schema, apply live in memory without dropping connections, and persist atomically (`0o600`) with SHA-256 audit logging.
+
+---
+
+## 3. PQC Key Lifecycle, Hardware Sealing & Supply-Chain Operations
+
+- **Initial Key Generation:** `qaegis init-identity --config /etc/qaegis/qaegis.yaml` creates `device_identity.secret.json` (`0o600`), `device_identity.public.json` (`0o644`), and `keyring.json` (`0o600`).
+- **Zero-Downtime Key Rotation (`qaegis rotate-keys`):** Rotate `ML-DSA-65`, `SLH-DSA`, `ML-KEM-768`, and `X25519` keys while preserving offline verification of all prior Reality Stamps and detached file signatures via `keyring.json`:
 
   ```bash
   sudo -u qaegis /opt/qaegis/.venv/bin/qaegis rotate-keys --config /etc/qaegis/qaegis.yaml
-
-  # Optional: rotate and immediately hardware-seal into PKCS#11 HSM / TPM 2.0
-  sudo -u qaegis /opt/qaegis/.venv/bin/qaegis rotate-keys --seal-backend pkcs11 --token-label qaegis --config /etc/qaegis/qaegis.yaml
-
-  # Offline verification against the full historical keyring (verifies v1, v2, ... stamps)
-  qaegis verify-stamp stamp_v1.json --keyring /var/lib/qaegis/keys/keyring.json
+  sudo -u qaegis /opt/qaegis/.venv/bin/qaegis rotate-keys --seal-backend pkcs11 --token-label qaegis --remove-plaintext --config /etc/qaegis/qaegis.yaml
   ```
 
-- **Compliance Auditing (Native JSON & CycloneDX 1.6 CBOM):**
+- **Post-Quantum Supply-Chain Signing & Hybrid File Encryption:**
 
   ```bash
-  qaegis cbom --format json --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.json
-  qaegis cbom --format cyclonedx --config /etc/qaegis/qaegis.yaml --output /var/lib/qaegis/cbom.cdx.json
+  # Detached dual-hash (SHA-256 + SHA3-256) + ML-DSA-65 signing for models, firmware, or SBOMs
+  qaegis sign-file release_bundle.tar.zst -o release_bundle.tar.zst.sig.json -c /etc/qaegis/qaegis.yaml
+  qaegis verify-file release_bundle.tar.zst release_bundle.tar.zst.sig.json --keyring /var/lib/qaegis/keys/keyring.json
+
+  # Hybrid X25519 + ML-KEM-768 + AES-256-GCM + ML-DSA-65 file encryption
+  qaegis encrypt fleet_credentials.json -o fleet_credentials.enc.json --recipient peer_identity.public.json --tier QUANTUM_CRITICAL
+  qaegis decrypt fleet_credentials.enc.json -o fleet_credentials.json --sender sender_identity.public.json
   ```
 
-- **Interactive Live Diagnostics Demo & Web Mission-Control Console:**
+- **CycloneDX 1.6 & Native CBOM Export:**
 
   ```bash
-  # Terminal showcase
-  qaegis demo
-
-  # Launch the full Live Web Mission-Control Dashboard & Hot-Config UI on http://127.0.0.1:8080
-  qaegis dashboard --host 127.0.0.1 --port 8080
-
-  # Optional: protect remote/tunneled dashboard access with a constant-time Bearer token
-  QAEGIS_DASHBOARD_TOKEN="strong-secret-token" qaegis dashboard --host 127.0.0.1 --port 8080
+  qaegis cbom --format cyclonedx --config /etc/qaegis/qaegis.yaml > /var/lib/qaegis/cbom.cdx.json
   ```
 
 - **Hardware Sealing (PKCS#11 HSM / SoftHSM2 or Linux TPM 2.0):**
 
   ```bash
-  # Seal PQC private keys using a non-extractable AES-256 KEK inside PKCS#11 HSM/SoftHSM2
   qaegis seal-identity --backend pkcs11 --token-label qaegis --pin "$QAEGIS_PKCS11_PIN" --config /etc/qaegis/qaegis.yaml
-
-  # Or seal against Linux TPM 2.0 PCR bank (sha256:0,7) on /dev/tpmrm0
   qaegis seal-identity --backend tpm2 --pcr-spec sha256:0,7 --config /etc/qaegis/qaegis.yaml
   ```
 
 - **CurveZMQ Peer Allowlists & Merkle Gossip Verification:**
-  Set `bus.transport: zmq` and `bus.zmq_security: curve` in `qaegis.yaml`, listing authorized peer Z85 Curve25519 public keys in `bus.zmq_allowed_peer_keys`. Inspect witnessed fleet checkpoints and verify external peer roots offline with:
 
   ```bash
   qaegis gossip status --config /etc/qaegis/qaegis.yaml
@@ -91,9 +97,9 @@ The shipped unit enforces `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `Prot
 
 ---
 
-## 3. Configuring Night-Mode QPU Credentials
+## 4. Configuring Multi-Cloud Night-Mode QPU Credentials
 
-Never store cloud QPU credentials inside `qaegis.yaml` or Git. Inject IBM Quantum Runtime credentials via a root-owned systemd drop-in override (`0o600`):
+Never store cloud QPU API tokens in `qaegis.yaml` or Git. Inject IBM Quantum, AWS Braket, or IonQ credentials via a root-owned `0o600` systemd override:
 
 ```bash
 sudo systemctl edit qaegis.service
@@ -102,50 +108,38 @@ sudo systemctl edit qaegis.service
 ```ini
 [Service]
 Environment="IBM_QUANTUM_TOKEN=<your-ibm-quantum-api-token>"
+Environment="IONQ_API_KEY=<your-ionq-api-key>"
+Environment="QAEGIS_BRAKET_DEVICE_ARN=arn:aws:braket:us-east-1::device/qpu/ionq/Aria-1"
 Environment="QAEGIS_QUANTUM_DREAMER__BACKEND_TYPE=ibm_runtime"
-Environment="QAEGIS_QUANTUM_DREAMER__IBM_BACKEND_NAME=ibm_brisbane"
-```
-
-Reload and restart:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart qaegis.service
+Environment="QAEGIS_QUANTUM_DREAMER__MITIGATION_MODE=both"
 ```
 
 ---
 
-## 4. Prometheus Monitoring & Alerting
+## 5. Prometheus Monitoring, Grafana & Alerting
 
-When `telemetry.enabled: true`, Q-Aegis exposes Prometheus metrics at `http://127.0.0.1:9108/metrics`:
+When `telemetry.enabled: true`, Q-Aegis exports Prometheus metrics on `http://127.0.0.1:9108/metrics`:
 
-| Metric | Type | Alerting Recommendation |
+| Metric | Type | Operational Guidance |
 | :--- | :--- | :--- |
-| `qaegis_qrng_health_checks_total{passed="false"}` | Counter | **Page immediately** if rate > 0 over 5m (potential entropy source failure or tampering). |
-| `qaegis_chameleon_tier_transitions_total{tier="QUANTUM_CRITICAL"}` | Counter | Alert security team on unexpected spike in `QUANTUM_CRITICAL` upgrades. |
-| `qaegis_dreamer_policy_updates_total{outcome="rolled_back"}` | Counter | Investigate if repeated Night-Mode rollbacks occur across consecutive cycles. |
-| `qaegis_crypto_operation_duration_seconds` | Histogram | Alert if p95 ML-DSA-65 signing latency exceeds 10 ms on target edge hardware. |
-| `qaegis_lifecycle_mode` | Gauge | Verify expected schedule transitions (`0=DAY`, `1=NIGHT`). |
+| `qaegis_qrng_health_checks_total{passed="false"}` | Counter | **Page immediately** if rate > 0 over 5m (entropy source failure or tampering). |
+| `qaegis_gossip_equivocation_total` | Counter | **Page immediately** — peer signed conflicting Merkle roots for the same tree size. |
 | `qaegis_bus_auth_rejections_total` | Counter | **Alert immediately** on unauthorized CurveZMQ peer ZAP handshake attempts. |
-| `qaegis_gossip_equivocation_total` | Counter | **Page immediately** — indicates a peer signed conflicting Merkle roots for the same tree size (split-view attack). |
-| `qaegis_mitigation_runs_total` | Counter | Track Night-Mode ZNE/TREX error mitigation invocation counts. |
-| `qaegis_identity_key_rotations_total` | Counter | Track completed zero-downtime PQC key rotations per node. |
+| `qaegis_chameleon_tier_transitions_total{tier="QUANTUM_CRITICAL"}` | Counter | Alert security operations on anomalous `QUANTUM_CRITICAL` spikes. |
+| `qaegis_dreamer_policy_updates_total{outcome="rolled_back"}` | Counter | Investigate if consecutive Night-Mode QAOA candidates fail held-out validation. |
+| `qaegis_crypto_operation_duration_seconds` | Histogram | Alert if p95 `ML-DSA-65` signing latency exceeds 10 ms on target edge hardware. |
+| `qaegis_identity_key_rotations_total` | Counter | Audit scheduled zero-downtime key rotations across the fleet. |
 
-### Ready-to-Import Grafana Dashboard & Prometheus Alerts
-
-Q-Aegis ships production observability templates under `deploy/`:
-
-- **Grafana v10+ Dashboard:** Import `deploy/grafana/qaegis-dashboard.json` and bind `${DS_PROMETHEUS}` to your Prometheus data source.
-- **Prometheus Alerting Rules:** Load `deploy/prometheus/alerts.yml` into your Prometheus `rule_files` configuration (`QAegisGossipEquivocationDetected`, `QAegisQRNGHealthFailure`, `QAegisCurveZMQAuthSpike`, `QAegisPolicyRollbackTriggered`, and `QAegisHighPqcSigningLatency`).
+Import `deploy/grafana/qaegis-dashboard.json` into Grafana v10+ and load `deploy/prometheus/alerts.yml` into Prometheus `rule_files`.
 
 ---
 
-## 5. Incident Response Procedures
+## 6. Incident Response Procedures
 
-### Suspected Audit Log Tampering
-Run `qaegis doctor --config /etc/qaegis/qaegis.yaml`. If `Audit Hash Chain Valid` reports `False`, immediately isolate the node from the network, preserve `/var/lib/qaegis/data/qaegis.db*` (including `-wal` and `-shm` files) for forensic inspection, and verify exported Reality Stamps offline with `qaegis verify-stamp`.
+### Suspected Database or Audit Chain Tampering
+Run `qaegis doctor --config /etc/qaegis/qaegis.yaml`. If `Audit Hash Chain Valid`, `Dream Queue Integrity`, or `Policy Snapshots Integrity` reports `False`, isolate the node from the network, preserve `/var/lib/qaegis/data/qaegis.db*` (`-wal` and `-shm` included) for forensics, and verify exported Reality Stamps and artifact bundles offline (`qaegis verify-stamp`, `qaegis verify-file`).
 
 ### Compromised Device Private Key
-1. Revoke the compromised node's public key fingerprint (`primary_sig_fingerprint`) at upstream verifiers.
-2. Execute `qaegis init-identity --rotate` on a verified host image.
-3. Re-distribute the new `device_identity.public.json` bundle.
+1. Revoke the compromised `key_id` / `primary_sig_fingerprint` at upstream verifiers and remove the node's Curve25519 Z85 key from fleet `zmq_allowed_peer_keys`.
+2. Re-provision a clean host image and execute `qaegis rotate-keys --seal-backend pkcs11 --remove-plaintext --config /etc/qaegis/qaegis.yaml` (or generate a fresh identity in a clean `keys_dir` if the prior identity was fully compromised).
+3. Distribute the new `device_identity.public.json` bundle to authorized fleet peers.

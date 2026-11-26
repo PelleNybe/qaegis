@@ -491,6 +491,23 @@ class DashboardServer:
             if not isinstance(stamp_obj, dict):
                 raise ValueError("Expected 'stamp' object")
             return rt.verify_stamp_payload(stamp_obj)
+        if method == "POST" and path == "/api/reality/sign-artifact":
+            return await rt.sign_artifact_payload(
+                artifact_name=str(payload.get("artifact_name", "artifact.bin")),
+                content_b64=payload.get("content_b64"),
+                content_text=payload.get("content_text"),
+                use_stateless_hash_sig=bool(payload.get("use_stateless_hash_sig", False)),
+                annotations=dict(payload.get("annotations", {})),
+            )
+        if method == "POST" and path == "/api/reality/verify-artifact":
+            bundle_obj = payload.get("bundle")
+            if not isinstance(bundle_obj, dict):
+                raise ValueError("Expected 'bundle' object")
+            return rt.verify_artifact_payload(
+                bundle_dict=bundle_obj,
+                content_b64=payload.get("content_b64"),
+                content_text=payload.get("content_text"),
+            )
         if method == "POST" and path == "/api/reality/qrng":
             n_bytes = int(payload.get("num_bytes", 64))
             return await rt.harvest_qrng(num_bytes=max(32, min(n_bytes, 4096)))

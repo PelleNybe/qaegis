@@ -154,6 +154,39 @@ async def test_web_dashboard_full_control_plane_config_and_sse(tmp_path: Path) -
             ver = (await client.post("/api/reality/verify", json={"stamp": stamp})).json()
             assert ver["valid"] is True
             assert ver["merkle_proof_ok"] is True
+
+            art_sig = (
+                await client.post(
+                    "/api/reality/sign-artifact",
+                    json={
+                        "artifact_name": "weights_v1.onnx",
+                        "content_text": '{"layers": 4, "version": "0.7.0"}',
+                        "use_stateless_hash_sig": False,
+                    },
+                )
+            ).json()
+            art_ver_ok = (
+                await client.post(
+                    "/api/reality/verify-artifact",
+                    json={
+                        "bundle": art_sig,
+                        "content_text": '{"layers": 4, "version": "0.7.0"}',
+                    },
+                )
+            ).json()
+            assert art_ver_ok["valid"] is True
+            art_ver_bad = (
+                await client.post(
+                    "/api/reality/verify-artifact",
+                    json={
+                        "bundle": art_sig,
+                        "content_text": '{"layers": 999, "tampered": true}',
+                    },
+                )
+            ).json()
+            assert art_ver_bad["valid"] is False
+            assert art_ver_bad["digest_ok"] is False
+
             qrng = (await client.post("/api/reality/qrng", json={"num_bytes": 64})).json()
             assert qrng["num_bytes"] == 64
             gos_cp = (await client.post("/api/gossip/checkpoint", json={})).json()

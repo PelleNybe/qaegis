@@ -1,15 +1,15 @@
 # Module 5: Quantum Entropy Evolution Engine (`qaegis.modules.quantum_entropy`)
 
-The **Quantum Entropy Evolution Engine** harvests genuine quantum measurement probability distributions from entangled circuits, XOR-mixes them with NIST-validated QRNG pools, and channels non-deterministic exploration into autonomous planning and local LLM agents.
+The **Quantum Entropy Evolution Engine** harvests genuine quantum measurement probability distributions from entangled multi-qubit circuits, XOR-mixes them with NIST-validated QRNG streams, and channels thread-safe non-deterministic exploration into autonomous planners and local LLM agents.
 
 ## Components
 
-- **Entangled Distribution Harvester (`harvester.py`):** Executes multi-qubit entangled Qiskit circuits (`H` -> `RY` -> `CNOT` chain -> `RY` -> measurement) on `AerSimulator` (with configurable depolarizing noise) and XOR-mixes outcomes with `MultiSourceQrng` to construct a `QuantumEntropyPool`.
+- **Entangled Distribution Harvester & Thread-Safe Pool (`harvester.py`):** Executes entangled Qiskit circuits (`H` -> `RY` -> `CNOT` chain -> `RY` -> measurement) on `AerSimulator` (offloaded cleanly via `asyncio.to_thread`), XOR-mixes shot outcomes with `MultiSourceQrng`, and exposes a lock-protected, NumPy-vectorized `QuantumEntropyPool` (`next_bytes`, `next_uint32`, `next_float`, `next_gaussians`).
 - **Quantum Planners & Samplers (`sampler.py`):**
   - `QuantumMCTS`: Monte Carlo Tree Search using verified quantum entropy for rollouts and UCT tie-break exploration jitter.
-  - `QuantumEvolutionaryMutator`: Continuous genome optimization via Box-Muller quantum Gaussian mutations.
+  - `QuantumEvolutionaryMutator`: Continuous genome optimization via vectorized Box-Muller quantum Gaussian mutations.
   - `QuantumLogitSampler`: Temperature + top-k + top-p nucleus token sampler with quantum logit perturbation.
-- **Local LLM Bridge (`ollama_bridge.py`):** Async `httpx` adapter for **Ollama** (`/api/generate`, `/api/tags`) and **llama.cpp / OpenAI-compatible** (`/v1/chat/completions`) servers, injecting quantum-derived 31-bit seeds and perturbed temperature/top-p schedules per reasoning branch.
+- **Local LLM Bridge (`ollama_bridge.py`):** Async `httpx` adapter for **Ollama** (`/api/generate`, `/api/tags`) and **llama.cpp / OpenAI-compatible** (`/v1/chat/completions`) endpoints, injecting quantum-derived 31-bit seeds and perturbed temperature/top-p schedules per reasoning branch.
 
 ## Standalone Python Usage
 
@@ -32,7 +32,7 @@ async def main() -> None:
     print("Sampled token index:", choice.token_index)
 
     bridge = OllamaQuantumBridge()
-    healthy, models = await bridge.check_health()
+    healthy, _models = await bridge.check_health()
     if healthy:
         gen = await bridge.generate_with_quantum_seed(
             "Suggest two evasive drone maneuvers.", pool=pool

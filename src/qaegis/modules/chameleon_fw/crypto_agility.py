@@ -27,7 +27,7 @@ from qaegis.core.identity import (
     resolve_oqs_kem_algorithm,
 )
 from qaegis.core.telemetry import QAegisMetrics
-from qaegis.modules.chameleon_fw.detector import ThreatTier
+from qaegis.modules.chameleon_fw.features import ThreatTier
 
 CIPHER_SUITES: dict[ThreatTier, str] = {
     ThreatTier.STANDARD: "X25519-HKDF-SHA384-AES256GCM",

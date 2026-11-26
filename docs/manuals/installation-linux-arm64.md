@@ -1,12 +1,12 @@
 # Installation Manual: Linux (`x86_64`) & Edge ARM64 (Raspberry Pi 5)
 
-This guide covers clean, reproducible installation of **Q-Aegis** on Ubuntu 22.04/24.04 (`x86_64`) and 64-bit ARM edge hardware such as **Raspberry Pi 5** (Raspberry Pi OS 64-bit / Ubuntu Server ARM64).
+This guide covers clean, reproducible installation of **Q-Aegis `v0.7.0`** on Ubuntu 22.04/24.04 (`x86_64`), Debian 12+, and 64-bit ARM edge hardware such as **Raspberry Pi 5** (Raspberry Pi OS 64-bit / Ubuntu Server ARM64).
 
 ---
 
 ## 1. System Prerequisites
 
-Install system build dependencies required to compile the `liboqs` shared C library and Python wheels:
+Install system build dependencies required for compiling the `liboqs` shared C library, Python wheels, and optional PKCS#11 / TPM 2.0 hardware security integration:
 
 ```bash
 sudo apt-get update
@@ -19,7 +19,9 @@ sudo apt-get install -y --no-install-recommends \
   python3 \
   python3-venv \
   python3-dev \
-  pkg-config
+  pkg-config \
+  softhsm2 \
+  tpm2-tools
 ```
 
 Verify Python is 3.11 or newer:
@@ -32,7 +34,7 @@ python3 --version
 
 ## 2. Build & Install `liboqs` Shared Library
 
-Compiling `liboqs` with OpenSSL acceleration ensures native hardware crypto performance on both x86_64 (AES-NI / AVX2) and ARM64 (ARMv8 Crypto Extensions on Raspberry Pi 5):
+Compiling `liboqs` with OpenSSL acceleration ensures native hardware crypto performance on both `x86_64` (AES-NI / AVX2) and `ARM64` (ARMv8 Crypto & SHA-3 Extensions on Cortex-A76 / Raspberry Pi 5):
 
 ```bash
 git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
@@ -72,28 +74,34 @@ pip install --no-cache-dir torch
 
 ---
 
-## 4. Install Q-Aegis & Verify Health
+## 4. Install Q-Aegis, Bootstrap Config & Verify Health
 
-Install Q-Aegis in editable mode (or standard wheel mode for production):
+Install Q-Aegis in editable mode (or install the built `.whl` artifact for immutable production hosts):
 
 ```bash
 pip install --no-cache-dir -e .
 ```
 
-Verify all cryptographic primitives, quantum simulators, and SQLite WAL storage:
+Bootstrap a deployment YAML configuration and run full diagnostics:
 
 ```bash
 qaegis version
-qaegis init-identity
-qaegis doctor
+qaegis init-config --profile developer -o qaegis.yaml
+qaegis init-identity -c qaegis.yaml
+qaegis doctor -c qaegis.yaml
+qaegis demo --fast
 ```
 
-Expected output confirms:
+Expected `qaegis doctor` output confirms:
+
 - `ML-KEM-768 Available: True`
 - `ML-DSA-65 Available: True`
 - `SLH-DSA Available: True`
-- `SQLite WAL Schema Version: 1`
+- `SQLite WAL Schema Version: 2`
 - `Audit Hash Chain Valid: True`
+- `Dream Queue Integrity: True`
+- `Policy Snapshots Integrity: True`
+- `Registered Quantum Backends: aer_noisy, aer_statevector, aws_braket, ibm_runtime, ionq`
 
 ---
 
@@ -102,8 +110,8 @@ Expected output confirms:
 To build a hardened non-root container image directly from the repository:
 
 ```bash
-docker build -f deploy/docker/Dockerfile -t qaegis:0.1.0 .
-docker run --rm qaegis:0.1.0 doctor
+docker build -f deploy/docker/Dockerfile -t qaegis:0.7.0 .
+docker run --rm qaegis:0.7.0 doctor
 ```
 
 For cross-platform builds using Docker Buildx:
@@ -112,5 +120,5 @@ For cross-platform builds using Docker Buildx:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -f deploy/docker/Dockerfile \
-  -t ghcr.io/pellenybe/qaegis:0.1.0 .
+  -t ghcr.io/pellenybe/qaegis:0.7.0 .
 ```

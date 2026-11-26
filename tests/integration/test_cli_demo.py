@@ -14,6 +14,8 @@ from qaegis.cli import app
 
 @pytest.mark.integration
 def test_cli_interactive_demo_fast() -> None:
+    from rich.console import Console
+
     runner = CliRunner()
     res = runner.invoke(app, ["demo", "--fast"])
     assert res.exit_code == 0, res.output
@@ -22,6 +24,15 @@ def test_cli_interactive_demo_fast() -> None:
     assert "3. Chameleon Firewall" in res.output
     assert "4. AI-to-Qubit Compiler" in res.output
     assert "5. QAOA + ZNE/TREX" in res.output
+
+    # Also verify structured DemoReport deterministic 3-tier Chameleon escalation
+    import asyncio
+
+    from qaegis.demo import run_interactive_demo
+
+    report = asyncio.run(run_interactive_demo(fast=True, console=Console(quiet=True)))
+    assert report.all_passed is True
+    assert report.stages[2].outcome == "STANDARD -> ELEVATED -> QUANTUM_CRITICAL"
 
 
 @pytest.mark.unit

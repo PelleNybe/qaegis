@@ -432,7 +432,7 @@
       .map(([k, v]) => `<div class="matrix-row"><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`)
       .join("");
 
-    const entries = Object.values(id.keyring.keys || {}).sort((a, c) => b.key_version - a.key_version || c.key_version - a.key_version);
+    const entries = Object.values(id.keyring.keys || {}).sort((x, y) => y.key_version - x.key_version);
     document.querySelector("#keyringTable tbody").innerHTML = entries
       .map(
         (k) => `
@@ -744,6 +744,61 @@
       await api("/api/gossip/checkpoint", { method: "POST", body: "{}" });
       toast("Signed & persisted local ML-DSA-65 Merkle gossip checkpoint");
       await loadRealityTab();
+    });
+
+    document.getElementById("signArtifactForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const bundle = await api("/api/reality/sign-artifact", {
+          method: "POST",
+          body: JSON.stringify({
+            artifact_name: document.getElementById("artifactNameInput").value,
+            content_text: document.getElementById("artifactContentInput").value,
+            use_stateless_hash_sig: document.getElementById("artifactStatelessSelect").value === "true",
+          }),
+        });
+        document.getElementById("artifactBundleOutput").value = JSON.stringify(bundle, null, 2);
+        toast(`Signed detached bundle (${bundle.algorithm})`);
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+
+    document.getElementById("verifyArtifactBtn").addEventListener("click", async () => {
+      try {
+        const bundle = JSON.parse(document.getElementById("artifactBundleOutput").value);
+        const res = await api("/api/reality/verify-artifact", {
+          method: "POST",
+          body: JSON.stringify({
+            bundle,
+            content_text: document.getElementById("artifactContentInput").value,
+          }),
+        });
+        document.getElementById("verifyArtifactResult").innerHTML = `
+          <div class="matrix-list">
+            <div class="matrix-row"><span>Overall Validity</span><strong style="color:${res.valid ? "var(--emerald)" : "var(--rose)"}">${res.valid}</strong></div>
+            <div class="matrix-row"><span>SHA-256 + SHA3-256 Match</span><strong>${res.digest_ok} (size_ok=${res.size_ok})</strong></div>
+            <div class="matrix-row"><span>Keyring / Fingerprint</span><strong>${res.fingerprint_ok} (v${res.key_version})</strong></div>
+            <div class="matrix-row"><span>${esc(res.algorithm)} Signature</span><strong>${res.signature_ok}</strong></div>
+            ${res.error ? `<div class="matrix-row"><span>Diagnostic</span><strong>${esc(res.error)}</strong></div>` : ""}
+          </div>`;
+      } catch (err) {
+        toast(`Artifact verification error: ${err.message}`, true);
+      }
+    });
+
+    document.getElementById("downloadArtifactSigBtn").addEventListener("click", () => {
+      const txt = document.getElementById("artifactBundleOutput").value;
+      if (!txt) {
+        toast("Sign an artifact bundle first", true);
+        return;
+      }
+      const name = document.getElementById("artifactNameInput").value || "artifact.bin";
+      const blob = new Blob([txt], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${name}.sig.json`;
+      a.click();
     });
 
     /* Module 2: Chameleon Firewall */

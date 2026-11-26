@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import warnings
-from enum import StrEnum
 from pathlib import Path
 
 import numpy as np
@@ -14,15 +13,13 @@ from pydantic import BaseModel, Field
 from sklearn.ensemble import IsolationForest
 
 from qaegis.core.config import ChameleonConfig
-from qaegis.modules.chameleon_fw.features import TrafficFeatureExtractor, TrafficObservation
-
-
-class ThreatTier(StrEnum):
-    """Dynamic cryptographic protection tiers enforced by Quantum Chameleon."""
-
-    STANDARD = "STANDARD"
-    ELEVATED = "ELEVATED"
-    QUANTUM_CRITICAL = "QUANTUM_CRITICAL"
+from qaegis.modules.chameleon_fw.features import (
+    ThreatTier as ThreatTier,
+)
+from qaegis.modules.chameleon_fw.features import (
+    TrafficFeatureExtractor,
+    TrafficObservation,
+)
 
 
 class ThreatAssessment(BaseModel):

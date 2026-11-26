@@ -4,9 +4,9 @@ The **AI-to-Qubit Compiler** bridges high-dimensional classical edge sensor stre
 
 ## Components
 
-- **Bounded Angle Autoencoder (`autoencoder.py`):** A CPU-friendly PyTorch autoencoder whose latent bottleneck applies $\tanh(z)\cdot\pi$, compressing arbitrary numeric feature vectors directly into valid $(R_x, R_y, R_z)$ rotation angles strictly inside $[-\pi, \pi]$, with first-class ONNX export and `onnxruntime` CPU execution (~0.08 ms per vector).
-- **Noise-Aware Circuit Builder (`circuit_builder.py`):** Generates parameterized quantum feature circuits for both **Qiskit** (with hardware-adapted entanglement topologies, transpilation, analytical fidelity estimation, and validated **OpenQASM 3.0** output) and **PennyLane** (`default.qubit` and noisy `default.mixed` with depolarizing channels).
-- **QUBO & Ising Mapper (`qubo_mapper.py`):** Translates concrete edge optimization tasks—weighted Max-Cut routing, conflict-constrained task scheduling, and resource allocation—into QUBO matrices and exact Ising spin Hamiltonians ($x_i = (1 - z_i)/2$).
+- **Self-Contained Bounded Angle Autoencoder (`autoencoder.py`):** A CPU-optimized PyTorch autoencoder whose bottleneck applies $\tanh(z)\cdot\pi$, compressing arbitrary numeric feature vectors directly into valid $(R_x, R_y, R_z)$ rotation angles strictly inside $[-\pi, \pi]$. Exported ONNX graphs fuse training $(\mu, \sigma)$ input standardization directly into the ONNX computation graph, delivering **`0.073 ms`** standalone `onnxruntime` CPU inference (**6.1x faster** than PyTorch).
+- **Noise-Aware Circuit Builder (`circuit_builder.py`):** Compiles bounded angle payloads into hardware-adapted quantum circuits for both **Qiskit** (with topology-aware entanglement, transpilation, analytical fidelity estimation, and syntax-verified **OpenQASM 3.0** output) and **PennyLane** (`default.qubit` and noisy `default.mixed` with depolarizing channels).
+- **QUBO & Ising Mapper (`qubo_mapper.py`):** Translates concrete edge optimization tasks—weighted Max-Cut routing, conflict-constrained task scheduling, and utility-vs-cost resource allocation—into QUBO matrices and exact Ising spin Hamiltonians ($x_i = (1 - z_i)/2$).
 
 ## Standalone Python Usage
 

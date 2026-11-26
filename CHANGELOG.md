@@ -5,6 +5,19 @@ All notable changes to **Q-Aegis** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-11-26
+
+### Added
+- **Ergonomic Async Python SDK (`qaegis.sdk.QAegisClient`):** High-level `from qaegis import QAegisClient` context manager unifying perception stamping (`stamp`, `verify_stamp`), post-quantum file signing (`sign_file`, `verify_file`), hybrid encryption (`encrypt`, `decrypt`, `protect`), ONNX/OpenQASM 3.0 tensor compilation (`compile_tensor`), QAOA Max-Cut optimization (`solve_maxcut`), and verified quantum randomness (`random_bytes`, `harvest_entropy`).
+- **Post-Quantum Supply-Chain File Signing (`ArtifactSignatureBundle`):** Streaming 64 KiB dual-digest (`SHA-256` + `SHA3-256`) + QRNG nonce + `ML-DSA-65` / `SLH-DSA-SHA2-128f` detached file signing and historical `TrustKeyring` verification via `qaegis sign-file`, `qaegis verify-file`, `QAegisClient`, and the Web Mission-Control Dashboard (`/api/reality/sign-artifact`, `/api/reality/verify-artifact`).
+- **Hybrid Post-Quantum File Encryption & Config Bootstrap CLI:** Added `qaegis encrypt`, `qaegis decrypt`, and `qaegis init-config --profile [developer|edge|fleet|airgap]` for immediate DevSecOps and developer adoption without boilerplate.
+
+### Performance & Polish
+- **10x Faster CLI Startup:** Deferred heavy quantum/ML module imports (`torch`, `qiskit`, `pennylane`, `onnxruntime`, `sklearn`) via PEP 562 lazy package exports and subcommand-scoped imports, cutting cold startup of cryptographic and configuration CLI commands from `~10.0 s` to `~1.0 s`.
+- **Zero-Noise `stdout` & Resilient `stderr` Logging:** Silenced `liboqs-python` import-time `stdout` logger pollution in `qaegis.__init__`, routed `structlog` through a stream-resilient `_DynamicStderrHandler`, and suppressed third-party Qiskit transpiler/HTTP `INFO` log noise so piped commands (`qaegis cbom --format cyclonedx > cbom.json`) always emit pure JSON.
+- **Deterministic 3-Tier Demo & Web UI Keyring Sort Fix:** Tuned `qaegis demo` Stage 3 traffic observations to deterministically demonstrate `STANDARD -> ELEVATED -> QUANTUM_CRITICAL` escalation, and fixed the keyring version sort comparator in `dashboard/static/app.js`.
+- **Comprehensive Documentation & Manuals Overhaul:** Upgraded `README.md`, MkDocs site (`docs/`), all four production manuals (`docs/manuals/`), all five module `README.md`s, `CITATION.cff`, `SECURITY.md`, and `CONTRIBUTING.md`.
+
 ## [0.6.0] - 2026-11-24
 
 ### Added

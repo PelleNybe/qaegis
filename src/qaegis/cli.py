@@ -3,24 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import platform
 import signal
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import oqs
 import orjson
-import pennylane as qml
-import qiskit
-import torch
 import typer
+import yaml
 from rich.console import Console
 from rich.table import Table
 
 from qaegis import __version__
 from qaegis.core.bus import EventBus
-from qaegis.core.config import load_config
+from qaegis.core.config import QAegisConfig, load_config
 from qaegis.core.hardware_seal import (
     HardwareSealer,
     PKCS11Sealer,
@@ -32,26 +31,16 @@ from qaegis.core.identity import IdentityManager, PublicIdentityBundle, TrustKey
 from qaegis.core.lifecycle import LifecycleManager
 from qaegis.core.storage import StorageEngine
 from qaegis.core.telemetry import QAegisMetrics, configure_logging
-from qaegis.dashboard import DashboardKernelRuntime, DashboardServer
-from qaegis.demo import run_interactive_demo
-from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
-from qaegis.modules.quantum_dreamer.service import NightCycleReport, QuantumDreamerService
-from qaegis.modules.quantum_dreamer.solvers import get_backend_registry
-from qaegis.modules.quantum_entropy.harvester import (
-    QuantumDistributionBatch,
-    QuantumDistributionHarvester,
-)
-from qaegis.modules.quantum_entropy.service import QuantumEntropyService
-from qaegis.modules.qubit_compiler.autoencoder import AngleEncoderPipeline
-from qaegis.modules.qubit_compiler.circuit_builder import (
-    BackendNoiseProfile,
-    NoiseAwareCircuitBuilder,
-)
-from qaegis.modules.qubit_compiler.qubo_mapper import build_maxcut_qubo
-from qaegis.modules.qubit_compiler.service import QubitCompilerService
+from qaegis.modules.chameleon_fw.crypto_agility import CryptoAgilityEngine, EncryptedEnvelope
+from qaegis.modules.chameleon_fw.features import ThreatTier
 from qaegis.modules.reality_stamp.gossip import MerkleGossipEnvelope, MerkleGossipNode
-from qaegis.modules.reality_stamp.service import RealityStampService
-from qaegis.modules.reality_stamp.signer import RealityStamp, verify_reality_stamp
+from qaegis.modules.reality_stamp.signer import (
+    ArtifactSignatureBundle,
+    RealityStamp,
+    sign_artifact_file,
+    verify_artifact_file,
+    verify_reality_stamp,
+)
 
 app = typer.Typer(
     name="qaegis",
@@ -70,6 +59,8 @@ console = Console()
 @app.command("version")
 def version_cmd() -> None:
     """Display Q-Aegis version and runtime library inventory."""
+    from importlib.metadata import version as pkg_version
+
     table = Table(title="Q-Aegis Runtime Environment")
     table.add_column("Component", style="cyan", no_wrap=True)
     table.add_column("Version / Status", style="green")
@@ -77,10 +68,71 @@ def version_cmd() -> None:
     table.add_row("Python", sys.version.split()[0])
     table.add_row("Platform", f"{platform.system()} {platform.machine()}")
     table.add_row("liboqs", str(oqs.oqs_version()))
-    table.add_row("Qiskit", qiskit.__version__)
-    table.add_row("PennyLane", qml.__version__)
-    table.add_row("PyTorch", f"{torch.__version__} (CUDA={torch.cuda.is_available()})")
+    table.add_row("Qiskit", pkg_version("qiskit"))
+    table.add_row("PennyLane", pkg_version("pennylane"))
+    table.add_row("PyTorch", pkg_version("torch"))
     console.print(table)
+
+
+@app.command("init-config")
+def init_config_cmd(
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Destination YAML configuration file."),
+    ] = Path("qaegis.yaml"),
+    profile: Annotated[
+        str,
+        typer.Option(
+            "--profile",
+            "-p",
+            help="Deployment preset: developer, edge, fleet, or airgap.",
+        ),
+    ] = "developer",
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Overwrite destination file if it already exists."),
+    ] = False,
+) -> None:
+    """Generate a ready-to-run Q-Aegis YAML configuration tailored to a deployment profile."""
+    if output.exists() and not force:
+        console.print(f"[red]File already exists: {output} (pass --force to overwrite)[/red]")
+        raise typer.Exit(code=2)
+
+    presets: dict[str, dict[str, Any]] = {
+        "developer": {
+            "node_id": "qaegis-dev-01",
+            "telemetry": {"enabled": False, "log_json": False, "log_level": "INFO"},
+            "dashboard": {"enabled": True, "host": "127.0.0.1", "port": 8080},
+            "reality_stamp": {"strict_nist_checks": False},
+        },
+        "edge": {
+            "node_id": "qaegis-edge-01",
+            "telemetry": {"enabled": True, "log_json": True},
+            "reality_stamp": {"strict_nist_checks": True},
+            "chameleon_fw": {"elevated_risk_threshold": 0.40, "critical_risk_threshold": 0.70},
+        },
+        "fleet": {
+            "node_id": "qaegis-fleet-node-01",
+            "bus": {"transport": "zmq", "zmq_security": "curve"},
+            "quantum_dreamer": {"backend_type": "aer_noisy", "mitigation_mode": "both"},
+        },
+        "airgap": {
+            "node_id": "qaegis-airgap-01",
+            "reality_stamp": {"qrng_http_url": None, "strict_nist_checks": True},
+            "quantum_dreamer": {"backend_type": "aer_noisy", "mitigation_mode": "both"},
+        },
+    }
+    if profile not in presets:
+        console.print(
+            f"[red]Unsupported profile '{profile}'. Use developer, edge, fleet, or airgap.[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    cfg = QAegisConfig.model_validate(presets[profile])
+    doc: dict[str, Any] = orjson.loads(orjson.dumps(cfg.model_dump(mode="json"), default=str))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    console.print(f"[green]Initialized '{profile}' configuration at {output}[/green]")
 
 
 @app.command("init-identity")
@@ -238,6 +290,8 @@ def demo_cmd(
     ] = False,
 ) -> None:
     """Run an interactive end-to-end live demonstration of all five Q-Aegis subsystems."""
+    from qaegis.demo import run_interactive_demo
+
     asyncio.run(run_interactive_demo(fast=fast, console=console))
 
 
@@ -299,6 +353,8 @@ def doctor_cmd(
     table.add_row("Audit Hash Chain Valid", f"{audit_ok} ({audit_count} records)")
     table.add_row("Dream Queue Integrity", f"{dream_ok} ({dream_count} problems)")
     table.add_row("Policy Snapshots Integrity", f"{policy_ok} ({policy_count} snapshots)")
+    from qaegis.modules.quantum_dreamer.solvers import get_backend_registry
+
     table.add_row("Trust Keyring", keyring_status)
     table.add_row(
         "Registered Quantum Backends",
@@ -403,6 +459,8 @@ def stamp_cmd(
     cfg.ensure_directories()
 
     async def _run() -> RealityStamp:
+        from qaegis.modules.reality_stamp.service import RealityStampService
+
         metrics = QAegisMetrics()
         bus = EventBus(config=cfg.bus, metrics=metrics)
         storage = StorageEngine(cfg.db_path)
@@ -488,6 +546,231 @@ def verify_stamp_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("sign-file")
+def sign_file_cmd(
+    file_path: Annotated[Path, typer.Argument(help="File, ML model, SBOM, or archive to sign.")],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output", "-o", help="Detached signature JSON path (default: <file>.sig.json)."
+        ),
+    ] = None,
+    stateless: Annotated[
+        bool,
+        typer.Option("--stateless", help="Sign with NIST FIPS 205 SLH-DSA instead of ML-DSA-65."),
+    ] = False,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Sign any file, ML model, firmware, or archive with NIST FIPS 204/205 PQC signatures."""
+    if not file_path.is_file():
+        console.print(f"[red]Target file not found: {file_path}[/red]")
+        raise typer.Exit(code=2)
+
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+    identity = mgr.load_or_create()
+
+    sig_bundle = sign_artifact_file(
+        file_path,
+        identity=identity,
+        use_stateless_hash_sig=stateless,
+    )
+    sig_out = output or Path(f"{file_path}.sig.json")
+    sig_out.parent.mkdir(parents=True, exist_ok=True)
+    sig_out.write_bytes(
+        orjson.dumps(
+            sig_bundle.model_dump(mode="json"),
+            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+        )
+    )
+    console.print(
+        f"[green]Signed {file_path.name} ({sig_bundle.size_bytes} B) with {sig_bundle.algorithm} "
+        f"-> {sig_out}[/green]"
+    )
+
+
+@app.command("verify-file")
+def verify_file_cmd(
+    file_path: Annotated[Path, typer.Argument(help="Target file to verify.")],
+    sig_file: Annotated[Path, typer.Argument(help="Detached ArtifactSignatureBundle JSON file.")],
+    keyring_file: Annotated[
+        Path | None,
+        typer.Option("--keyring", "-k", help="Optional historical TrustKeyring JSON file."),
+    ] = None,
+    expected_fingerprint: Annotated[
+        str | None,
+        typer.Option("--fingerprint", help="Optional expected SHA3-256 public key fingerprint."),
+    ] = None,
+) -> None:
+    """Verify a file against its detached NIST FIPS 204/205 post-quantum signature bundle."""
+    if not file_path.is_file():
+        console.print(f"[red]Target file not found: {file_path}[/red]")
+        raise typer.Exit(code=2)
+    if not sig_file.is_file():
+        console.print(f"[red]Signature file not found: {sig_file}[/red]")
+        raise typer.Exit(code=2)
+
+    bundle = ArtifactSignatureBundle.model_validate(orjson.loads(sig_file.read_bytes()))
+    keyring: TrustKeyring | None = None
+    if keyring_file is not None:
+        if not keyring_file.is_file():
+            console.print(f"[red]Keyring file not found: {keyring_file}[/red]")
+            raise typer.Exit(code=2)
+        keyring = TrustKeyring.model_validate(orjson.loads(keyring_file.read_bytes()))
+
+    res = verify_artifact_file(
+        file_path,
+        bundle,
+        expected_public_key_fingerprint=expected_fingerprint,
+        keyring=keyring,
+    )
+    table = Table(title=f"Post-Quantum File Verification ({file_path.name})")
+    table.add_column("Check", style="cyan")
+    table.add_column("Status", style="green" if res.valid else "red")
+    table.add_row("Overall Valid", str(res.valid))
+    table.add_row("Algorithm", res.algorithm)
+    table.add_row("Key ID / Version", f"{res.key_id} (v{res.key_version})")
+    table.add_row("SHA-256 & SHA3-256 Digest", str(res.digest_ok))
+    table.add_row("Key Fingerprint / Keyring", str(res.fingerprint_ok))
+    table.add_row("PQC Signature", str(res.signature_ok))
+    console.print(table)
+    if not res.valid:
+        raise typer.Exit(code=1)
+
+
+@app.command("encrypt")
+def encrypt_cmd(
+    input_file: Annotated[Path, typer.Argument(help="Plaintext file to encrypt.")],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output EncryptedEnvelope JSON file."),
+    ],
+    recipient_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--recipient",
+            "-r",
+            help="Recipient PublicIdentityBundle JSON (defaults to local node public key).",
+        ),
+    ] = None,
+    tier: Annotated[
+        str,
+        typer.Option(
+            "--tier",
+            "-t",
+            help="Security tier: STANDARD, ELEVATED (ML-KEM-768), or QUANTUM_CRITICAL.",
+        ),
+    ] = "QUANTUM_CRITICAL",
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Encrypt a file using hybrid X25519 + NIST ML-KEM-768 + AES-256-GCM (+ ML-DSA-65)."""
+    if not input_file.is_file():
+        console.print(f"[red]Input file not found: {input_file}[/red]")
+        raise typer.Exit(code=2)
+
+    try:
+        tier_enum = ThreatTier(tier.upper())
+    except ValueError as exc:
+        console.print(
+            f"[red]Invalid --tier '{tier}'. Use STANDARD, ELEVATED, or QUANTUM_CRITICAL.[/red]"
+        )
+        raise typer.Exit(code=2) from exc
+
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+    identity = mgr.load_or_create()
+
+    if recipient_file is not None:
+        if not recipient_file.is_file():
+            console.print(f"[red]Recipient public key file not found: {recipient_file}[/red]")
+            raise typer.Exit(code=2)
+        recipient = PublicIdentityBundle.model_validate(orjson.loads(recipient_file.read_bytes()))
+    else:
+        recipient = identity.public_bundle()
+
+    engine = CryptoAgilityEngine(identity=identity, config=cfg.chameleon_fw)
+    envelope = engine.encrypt(
+        plaintext=input_file.read_bytes(),
+        recipient=recipient,
+        tier=tier_enum,
+        associated_data=f"file:{input_file.name}".encode(),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(
+        orjson.dumps(
+            envelope.model_dump(mode="json"),
+            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS,
+        )
+    )
+    console.print(
+        f"[green]Encrypted {input_file.name} -> {output} "
+        f"(tier={envelope.tier.value}, suite={envelope.cipher_suite})[/green]"
+    )
+
+
+@app.command("decrypt")
+def decrypt_cmd(
+    envelope_file: Annotated[Path, typer.Argument(help="EncryptedEnvelope JSON file.")],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Destination path for decrypted plaintext."),
+    ],
+    sender_file: Annotated[
+        Path | None,
+        typer.Option("--sender", "-s", help="Optional expected sender PublicIdentityBundle JSON."),
+    ] = None,
+    keyring_file: Annotated[
+        Path | None,
+        typer.Option("--keyring", "-k", help="Optional sender TrustKeyring JSON file."),
+    ] = None,
+    config_file: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Optional YAML configuration file."),
+    ] = None,
+) -> None:
+    """Authenticate and decrypt a hybrid post-quantum Q-Aegis EncryptedEnvelope file."""
+    if not envelope_file.is_file():
+        console.print(f"[red]Encrypted file not found: {envelope_file}[/red]")
+        raise typer.Exit(code=2)
+
+    cfg = load_config(config_file)
+    cfg.ensure_directories()
+    mgr = IdentityManager(keys_dir=cfg.keys_dir, node_id=cfg.node_id, config=cfg.identity)
+    identity = mgr.load_or_create()
+
+    envelope = EncryptedEnvelope.model_validate(orjson.loads(envelope_file.read_bytes()))
+    sender = (
+        PublicIdentityBundle.model_validate(orjson.loads(sender_file.read_bytes()))
+        if sender_file is not None
+        else None
+    )
+    keyring = (
+        TrustKeyring.model_validate(orjson.loads(keyring_file.read_bytes()))
+        if keyring_file is not None
+        else None
+    )
+
+    engine = CryptoAgilityEngine(identity=identity, config=cfg.chameleon_fw)
+    plaintext = engine.decrypt(
+        envelope,
+        expected_sender=sender,
+        expected_sender_keyring=keyring,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(plaintext)
+    console.print(
+        f"[green]Decrypted & verified {envelope_file.name} -> {output} ({len(plaintext)} B)[/green]"
+    )
+
+
 @app.command("compile-circuit")
 def compile_circuit_cmd(
     vector: Annotated[
@@ -501,6 +784,12 @@ def compile_circuit_cmd(
     ] = None,
 ) -> None:
     """Compile a numeric edge sensor vector into bounded qubit angles and OpenQASM 3.0."""
+    from qaegis.modules.qubit_compiler.autoencoder import AngleEncoderPipeline
+    from qaegis.modules.qubit_compiler.circuit_builder import (
+        BackendNoiseProfile,
+        NoiseAwareCircuitBuilder,
+    )
+
     values = [float(item.strip()) for item in vector.split(",") if item.strip()]
     pipeline = AngleEncoderPipeline(input_dim=len(values), num_qubits=qubits)
     angles = pipeline.encode_to_angles(values)
@@ -556,6 +845,9 @@ def dream_cmd(
         },
     )
     cfg.ensure_directories()
+
+    from qaegis.modules.quantum_dreamer.service import NightCycleReport, QuantumDreamerService
+    from qaegis.modules.qubit_compiler.qubo_mapper import build_maxcut_qubo
 
     async def _run() -> NightCycleReport:
         metrics = QAegisMetrics()
@@ -614,6 +906,11 @@ def entropy_cmd(
 ) -> None:
     """Harvest a verified quantum probability distribution and display Shannon entropy."""
 
+    from qaegis.modules.quantum_entropy.harvester import (
+        QuantumDistributionBatch,
+        QuantumDistributionHarvester,
+    )
+
     async def _run() -> QuantumDistributionBatch:
         harvester = QuantumDistributionHarvester()
         batch, _pool = await harvester.harvest_batch(num_qubits=qubits, shots=shots)
@@ -663,6 +960,8 @@ def dashboard_cmd(
     cfg.ensure_directories()
 
     async def _run_dashboard() -> None:
+        from qaegis.dashboard import DashboardKernelRuntime, DashboardServer
+
         metrics = QAegisMetrics()
         runtime = DashboardKernelRuntime(
             config=cfg,
@@ -698,8 +997,6 @@ def dashboard_cmd(
                     loop.remove_signal_handler(sig)
             await server.stop()
 
-    import contextlib
-
     asyncio.run(_run_dashboard())
 
 
@@ -734,6 +1031,13 @@ def run_cmd(
     cfg.ensure_directories()
 
     async def _serve() -> None:
+        from qaegis.dashboard import DashboardKernelRuntime, DashboardServer
+        from qaegis.modules.chameleon_fw.service import ChameleonFirewallService
+        from qaegis.modules.quantum_dreamer.service import QuantumDreamerService
+        from qaegis.modules.quantum_entropy.service import QuantumEntropyService
+        from qaegis.modules.qubit_compiler.service import QubitCompilerService
+        from qaegis.modules.reality_stamp.service import RealityStampService
+
         metrics = QAegisMetrics()
         bus = EventBus(config=cfg.bus, metrics=metrics)
         storage = StorageEngine(cfg.db_path)

@@ -36,8 +36,9 @@ jobs:
           cmake -S /tmp/liboqs -B /tmp/liboqs/build -GNinja \
             -DBUILD_SHARED_LIBS=ON \
             -DOQS_USE_OPENSSL=ON \
+            -DOQS_BUILD_ONLY_LIB=ON \
             -DCMAKE_INSTALL_PREFIX=/usr/local
-          ninja -C /tmp/liboqs/build install
+          sudo ninja -C /tmp/liboqs/build install
           sudo ldconfig
 
       - name: Install CPU-only PyTorch and Q-Aegis dependencies

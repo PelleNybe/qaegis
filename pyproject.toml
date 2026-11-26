@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qaegis"
-version = "0.6.0"
+version = "0.7.0"
 description = "Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform"
 readme = "README.md"
 license = "Apache-2.0"
@@ -144,45 +144,33 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = [
     "oqs",
-    "oqs.*",
     "pkcs11",
     "pkcs11.*",
-    "braket",
     "braket.*",
     "qiskit",
     "qiskit.*",
     "qiskit_aer",
     "qiskit_aer.*",
     "qiskit_ibm_runtime",
-    "qiskit_ibm_runtime.*",
     "pennylane",
-    "pennylane.*",
-    "sklearn",
     "sklearn.*",
     "scipy",
     "scipy.*",
     "onnx",
     "onnx.*",
     "onnxruntime",
-    "onnxruntime.*",
     "paho",
     "paho.*",
     "zmq",
     "zmq.*",
     "rclpy",
-    "rclpy.*",
-    "std_msgs",
     "std_msgs.*",
     "yaml",
-    "yaml.*",
     "prometheus_client",
     "prometheus_client.*",
     "psutil",
-    "psutil.*",
     "torch",
     "torch.*",
-    "openqasm3",
-    "openqasm3.*",
 ]
 ignore_missing_imports = true
 

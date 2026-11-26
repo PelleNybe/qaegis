@@ -21,6 +21,14 @@ from prometheus_client import (
 from qaegis.core.config import TelemetryConfig
 
 
+class _DynamicStderrHandler(logging.StreamHandler[Any]):
+    """StreamHandler that resolves `sys.stderr` dynamically on emit to survive test stream swaps."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.stream = sys.stderr
+        super().emit(record)
+
+
 def configure_logging(config: TelemetryConfig | None = None) -> None:
     """Configure structlog and standard-library logging for JSON or console output."""
     cfg = config or TelemetryConfig()
@@ -59,13 +67,18 @@ def configure_logging(config: TelemetryConfig | None = None) -> None:
         ],
     )
 
-    handler = logging.StreamHandler(sys.stderr)
+    handler = _DynamicStderrHandler()
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
+    for noisy_logger in ("qiskit", "stevedore", "httpx", "httpcore"):
+        logging.getLogger(noisy_logger).setLevel(max(level, logging.WARNING))
+
+
+configure_logging(TelemetryConfig(log_json=False, log_level="INFO"))
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

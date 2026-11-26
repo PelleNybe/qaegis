@@ -372,6 +372,52 @@
             </div>
           </div>
 
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Post-Quantum Artifact &amp; Supply-Chain Signer</h2>
+                  <span class="card-sub">Dual SHA-256 + SHA3-256 + QRNG nonce + ML-DSA-65 / SLH-DSA detached bundle</span>
+                </div>
+              </div>
+              <form id="signArtifactForm" class="form-stack">
+                <div class="form-row two-inputs">
+                  <div>
+                    <label>Artifact / Model Name</label>
+                    <input type="text" id="artifactNameInput" class="input" value="policy_weights_v1.onnx" required />
+                  </div>
+                  <div>
+                    <label>Algorithm</label>
+                    <select id="artifactStatelessSelect" class="input">
+                      <option value="false">ML-DSA-65 (NIST FIPS 204)</option>
+                      <option value="true">SLH-DSA-SHA2-128f (NIST FIPS 205)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label>Artifact Content (UTF-8 payload, manifest, SBOM, or config)</label>
+                  <textarea id="artifactContentInput" class="code-textarea" rows="3">{"model":"angle_encoder_v1","sha_manifest":"release-0.7.0"}</textarea>
+                </div>
+                <div class="inline-controls">
+                  <button type="submit" class="btn btn-primary">Sign Detached Bundle</button>
+                  <button type="button" class="btn btn-outline" id="verifyArtifactBtn">Verify Artifact Bundle</button>
+                  <button type="button" class="btn btn-ghost" id="downloadArtifactSigBtn">Download .sig.json</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2>Detached Signature Bundle &amp; Verification</h2>
+                  <span class="card-sub">Verifies dual digest, size, TrustKeyring lineage &amp; PQC signature</span>
+                </div>
+              </div>
+              <textarea id="artifactBundleOutput" class="code-textarea" rows="6" placeholder="Click 'Sign Detached Bundle' to generate an ArtifactSignatureBundle JSON..."></textarea>
+              <div id="verifyArtifactResult" class="result-box"></div>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-header">
               <h2>Persisted RFC 6962 Merkle Leaves (SQLite WAL)</h2>

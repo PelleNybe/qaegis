@@ -1,6 +1,10 @@
 # API Reference
 
-This page provides auto-generated API documentation from the strictly typed Q-Aegis source modules.
+This page provides auto-generated API documentation from the strictly typed (`mypy --strict`) Q-Aegis source packages.
+
+## High-Level Python SDK
+
+::: qaegis.sdk
 
 ## Microkernel Core
 
@@ -10,8 +14,9 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.core.hardware_seal
 ::: qaegis.core.lifecycle
 ::: qaegis.core.storage
+::: qaegis.core.telemetry
 
-## Module 1: Proof of Reality
+## Module 1: Proof of Reality & Supply-Chain Signing
 
 ::: qaegis.modules.reality_stamp.nist_tests
 ::: qaegis.modules.reality_stamp.qrng
@@ -19,7 +24,7 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.reality_stamp.merkle
 ::: qaegis.modules.reality_stamp.gossip
 
-## Module 2: Quantum Chameleon
+## Module 2: Quantum Chameleon Adaptive Firewall
 
 ::: qaegis.modules.chameleon_fw.features
 ::: qaegis.modules.chameleon_fw.detector
@@ -31,7 +36,7 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.qubit_compiler.circuit_builder
 ::: qaegis.modules.qubit_compiler.qubo_mapper
 
-## Module 4: Quantum Dreaming
+## Module 4: Quantum Dreaming & Error Mitigation
 
 ::: qaegis.modules.quantum_dreamer.solvers
 ::: qaegis.modules.quantum_dreamer.backends.braket_backend
@@ -40,7 +45,7 @@ This page provides auto-generated API documentation from the strictly typed Q-Ae
 ::: qaegis.modules.quantum_dreamer.mitigation
 ::: qaegis.modules.quantum_dreamer.policy_updater
 
-## Module 5: Quantum Entropy Engine
+## Module 5: Quantum Entropy Evolution Engine
 
 ::: qaegis.modules.quantum_entropy.harvester
 ::: qaegis.modules.quantum_entropy.sampler
