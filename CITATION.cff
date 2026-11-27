@@ -3,7 +3,11 @@ title: "Q-Aegis: Quantum-Secured Autonomous Edge-AI Platform"
 message: "If you use Q-Aegis in research or production systems, please cite it using these metadata."
 type: software
 authors:
-  - name: "Q-Aegis Contributors"
+  - alias: "PelleNybe"
+    name: "Pelle"
+    website: "https://github.com/PelleNybe"
+  - name: "Corax CoLAB"
+    website: "https://coraxcolab.com"
 repository-code: "https://github.com/PelleNybe/qaegis"
 url: "https://github.com/PelleNybe/qaegis"
 license: Apache-2.0

@@ -76,3 +76,11 @@ Welcome to the official documentation for **Q-Aegis**—an open-source (Apache-2
 - **Security & Compliance Architects:** Review [Cryptography & Threat Model](cryptography-threat-model.md) (`FIPS 203/204/205`, HSM/TPM 2.0 sealing, CycloneDX 1.6 CBOM).
 - **Site Reliability & Fleet Operators:** Read the [Operator's Manual](manuals/operators-manual.md) and [Troubleshooting Guide](manuals/troubleshooting.md).
 - **Application & Quantum Developers:** Explore [Quantum Backends & Error Mitigation](quantum-backends.md), the [Developer Plugin Guide](manuals/developer-plugin-guide.md), and the [Typed API Reference](api-reference.md).
+
+---
+
+## Credits & Sponsorship
+
+**Q-Aegis** is created and maintained by **[Corax CoLAB](https://coraxcolab.com)** and **[Pelle (@PelleNybe)](https://github.com/PelleNybe)** under the Apache-2.0 License.
+
+If Q-Aegis helps your engineering team or research, you can support ongoing open-source development via **[Buy Me a Coffee](https://buymeacoffee.com/pellenybe)**.

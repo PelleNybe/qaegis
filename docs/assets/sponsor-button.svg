@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 290 54" width="290" height="54" role="img" aria-label="Sponsor Pelle on Buy Me a Coffee">
+  <defs>
+    <linearGradient id="bmcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffdd00" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <linearGradient id="shineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0.45" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <clipPath id="btnClip">
+      <rect x="2" y="2" width="286" height="50" rx="12" />
+    </clipPath>
+  </defs>
+
+  <rect x="2" y="2" width="286" height="50" rx="12" fill="url(#bmcGrad)" stroke="#fbbf24" stroke-width="1.5" />
+
+  <!-- Subtle animated sheen -->
+  <g clip-path="url(#btnClip)">
+    <rect x="-120" y="0" width="90" height="54" fill="url(#shineGrad)" transform="skewX(-20)">
+      <animate attributeName="x" values="-120;420;420" keyTimes="0;0.45;1" dur="4.5s" repeatCount="indefinite" />
+    </rect>
+  </g>
+
+  <!-- Coffee Cup Vector Icon -->
+  <g transform="translate(22, 13)" fill="none" stroke="#0f172a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 8h15v9a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5V8z" fill="#0f172a" fill-opacity="0.1" />
+    <path d="M18 10h2.5a3 3 0 0 1 0 6H18" />
+    <path d="M7 3v2M11 2v3M15 3v2">
+      <animate attributeName="opacity" values="0.35;1;0.35" dur="2s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <text x="58" y="25" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14.5" font-weight="800" fill="#0f172a">Buy Me a Coffee · Sponsor</text>
+  <text x="58" y="41" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="700" fill="#1e293b">buymeacoffee.com/pellenybe</text>
+</svg>

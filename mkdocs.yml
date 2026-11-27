@@ -3,7 +3,7 @@ site_description: Quantum-Secured Autonomous Edge-AI Platform
 site_url: https://pellenybe.github.io/qaegis/
 repo_url: https://github.com/PelleNybe/qaegis
 repo_name: PelleNybe/qaegis
-copyright: Copyright &copy; 2026 Q-Aegis Contributors (Apache-2.0)
+copyright: Copyright &copy; 2026 Corax CoLAB &amp; Pelle (Apache-2.0)
 
 theme:
   name: material

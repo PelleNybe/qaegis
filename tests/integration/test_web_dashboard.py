@@ -47,6 +47,9 @@ async def test_web_dashboard_full_control_plane_config_and_sse(tmp_path: Path) -
             r_html = await client.get("/")
             assert r_html.status_code == 200
             assert "Q-Aegis Mission Control" in r_html.text
+            assert "https://coraxcolab.com" in r_html.text
+            assert "https://github.com/PelleNybe" in r_html.text
+            assert "https://buymeacoffee.com/pellenybe" in r_html.text
             assert r_html.headers["x-content-type-options"] == "nosniff"
             assert (await client.get("/assets/app.css")).status_code == 200
             assert (await client.get("/assets/app.js")).status_code == 200

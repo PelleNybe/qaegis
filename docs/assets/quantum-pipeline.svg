@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 215" width="100%" role="img" aria-label="Q-Aegis Live Five-Subsystem Telemetry Pipeline">
+  <defs>
+    <linearGradient id="pipeBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#070d19" />
+      <stop offset="50%" stop-color="#0d182d" />
+      <stop offset="100%" stop-color="#070d19" />
+    </linearGradient>
+    <linearGradient id="flowLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="50%" stop-color="#22d3ee" />
+      <stop offset="100%" stop-color="#a78bfa" />
+    </linearGradient>
+    <path id="signalTrack" d="M 130 112 L 1070 112" />
+  </defs>
+
+  <rect x="2" y="2" width="1196" height="211" rx="16" fill="url(#pipeBg)" stroke="#1e293b" stroke-width="1.5" />
+
+  <!-- Header -->
+  <text x="32" y="34" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="700" fill="#67e8f9" letter-spacing="1.1">LIVE MICROKERNEL DATAFLOW  ·  SUB-10MS DAY MODE + FEDERATED NIGHT-MODE QAOA</text>
+
+  <!-- Animated Conduit Track -->
+  <use href="#signalTrack" stroke="#1e293b" stroke-width="4" fill="none" />
+  <use href="#signalTrack" stroke="url(#flowLine)" stroke-width="2" stroke-dasharray="10 10" fill="none">
+    <animate attributeName="stroke-dashoffset" from="40" to="0" dur="1.4s" repeatCount="indefinite" />
+  </use>
+
+  <!-- Traveling Quantum Packets -->
+  <circle r="5" fill="#22d3ee">
+    <animateMotion dur="4.2s" repeatCount="indefinite" path="M 130 112 L 1070 112" />
+  </circle>
+  <circle r="5" fill="#34d399">
+    <animateMotion dur="4.2s" begin="1.4s" repeatCount="indefinite" path="M 130 112 L 1070 112" />
+  </circle>
+  <circle r="5" fill="#c4b5fd">
+    <animateMotion dur="4.2s" begin="2.8s" repeatCount="indefinite" path="M 130 112 L 1070 112" />
+  </circle>
+
+  <!-- Stage 01 -->
+  <g transform="translate(28, 54)">
+    <rect width="208" height="118" rx="12" fill="#0f1b31" stroke="#14b8a6" stroke-opacity="0.55" stroke-width="1.4" />
+    <text x="16" y="26" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700" fill="#2dd4bf">01 · PROOF OF REALITY</text>
+    <text x="16" y="50" font-family="Inter, sans-serif" font-size="13.5" font-weight="700" fill="#f1f5f9">QRNG + ML-DSA-65</text>
+    <text x="16" y="71" font-family="Inter, sans-serif" font-size="11.5" fill="#94a3b8">NIST 800-22/90B + Merkle</text>
+    <rect x="16" y="85" width="128" height="21" rx="6" fill="#092826" />
+    <text x="24" y="99" font-family="'JetBrains Mono', monospace" font-size="10.5" fill="#34d399">8.6 ms · 116/s</text>
+  </g>
+
+  <!-- Stage 02 -->
+  <g transform="translate(261, 54)">
+    <rect width="208" height="118" rx="12" fill="#0f1b31" stroke="#22d3ee" stroke-opacity="0.55" stroke-width="1.4" />
+    <text x="16" y="26" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700" fill="#22d3ee">02 · CHAMELEON FW</text>
+    <text x="16" y="50" font-family="Inter, sans-serif" font-size="13.5" font-weight="700" fill="#f1f5f9">Hybrid ML-KEM-768</text>
+    <text x="16" y="71" font-family="Inter, sans-serif" font-size="11.5" fill="#94a3b8">IsolationForest + ONNX HNDL</text>
+    <rect x="16" y="85" width="142" height="21" rx="6" fill="#0b253c" />
+    <text x="24" y="99" font-family="'JetBrains Mono', monospace" font-size="10.5" fill="#67e8f9">0.57 ms · 1,756/s</text>
+  </g>
+
+  <!-- Stage 03 -->
+  <g transform="translate(494, 54)">
+    <rect width="208" height="118" rx="12" fill="#0f1b31" stroke="#38bdf8" stroke-opacity="0.55" stroke-width="1.4" />
+    <text x="16" y="26" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700" fill="#38bdf8">03 · QUBIT COMPILER</text>
+    <text x="16" y="50" font-family="Inter, sans-serif" font-size="13.5" font-weight="700" fill="#f1f5f9">ONNX Autoencoder</text>
+    <text x="16" y="71" font-family="Inter, sans-serif" font-size="11.5" fill="#94a3b8">[-pi, pi] + OpenQASM 3.0</text>
+    <rect x="16" y="85" width="146" height="21" rx="6" fill="#0b253c" />
+    <text x="24" y="99" font-family="'JetBrains Mono', monospace" font-size="10.5" fill="#7dd3fc">0.073 ms · 6.1x ONNX</text>
+  </g>
+
+  <!-- Stage 04 -->
+  <g transform="translate(727, 54)">
+    <rect width="208" height="118" rx="12" fill="#0f1b31" stroke="#a78bfa" stroke-opacity="0.55" stroke-width="1.4" />
+    <text x="16" y="26" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700" fill="#a78bfa">04 · QUANTUM DREAMER</text>
+    <text x="16" y="50" font-family="Inter, sans-serif" font-size="13.5" font-weight="700" fill="#f1f5f9">Federated QAOA</text>
+    <text x="16" y="71" font-family="Inter, sans-serif" font-size="11.5" fill="#94a3b8">ZNE + TREX Mitigation</text>
+    <rect x="16" y="85" width="156" height="21" rx="6" fill="#1f1638" />
+    <text x="24" y="99" font-family="'JetBrains Mono', monospace" font-size="10.5" fill="#c4b5fd">-85% to -97% Error</text>
+  </g>
+
+  <!-- Stage 05 -->
+  <g transform="translate(960, 54)">
+    <rect width="212" height="118" rx="12" fill="#0f1b31" stroke="#10b981" stroke-opacity="0.55" stroke-width="1.4" />
+    <text x="16" y="26" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700" fill="#34d399">05 · QUANTUM ENTROPY</text>
+    <text x="16" y="50" font-family="Inter, sans-serif" font-size="13.5" font-weight="700" fill="#f1f5f9">Entangled Pool</text>
+    <text x="16" y="71" font-family="Inter, sans-serif" font-size="11.5" fill="#94a3b8">MCTS · Evolution · Ollama</text>
+    <rect x="16" y="85" width="152" height="21" rx="6" fill="#092826" />
+    <text x="24" y="99" font-family="'JetBrains Mono', monospace" font-size="10.5" fill="#6ee7b7">XOR-Verified Stream</text>
+  </g>
+</svg>

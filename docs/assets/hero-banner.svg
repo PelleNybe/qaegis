@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="100%" role="img" aria-label="Q-Aegis — Quantum-Secured Autonomous Edge-AI Platform">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#050914" />
+      <stop offset="50%" stop-color="#0b162c" />
+      <stop offset="100%" stop-color="#071220" />
+    </linearGradient>
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.42" />
+      <stop offset="55%" stop-color="#14b8a6" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#050914" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="accentGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#050914" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="titleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="55%" stop-color="#67e8f9" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14b8a6" />
+      <stop offset="100%" stop-color="#22d3ee" />
+    </linearGradient>
+    <linearGradient id="borderBeam" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0f172a" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#22d3ee" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0.2" />
+    </linearGradient>
+    <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#38bdf8" stroke-opacity="0.06" stroke-width="1" />
+    </pattern>
+  </defs>
+
+  <!-- Outer Card Frame -->
+  <rect x="2" y="2" width="1196" height="336" rx="20" fill="url(#bgGrad)" stroke="url(#borderBeam)" stroke-width="1.5" />
+  <rect x="2" y="2" width="1196" height="336" rx="20" fill="url(#gridPattern)" />
+
+  <!-- Ambient Quantum Nebulae -->
+  <circle cx="195" cy="170" r="165" fill="url(#coreGlow)">
+    <animate attributeName="r" values="150;175;150" dur="5s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="1030" cy="85" r="150" fill="url(#accentGlow)">
+    <animate attributeName="opacity" values="0.6;1;0.6" dur="6s" repeatCount="indefinite" />
+  </circle>
+
+  <!-- Animated Quantum Shield & Orbital Atom (Left) -->
+  <g transform="translate(195, 170)">
+    <!-- Outer dashed PQC lattice ring -->
+    <circle cx="0" cy="0" r="108" fill="none" stroke="#22d3ee" stroke-opacity="0.22" stroke-width="1.2" stroke-dasharray="6 8">
+      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="36s" repeatCount="indefinite" />
+    </circle>
+
+    <!-- Orbital 1 -->
+    <g>
+      <ellipse cx="0" cy="0" rx="92" ry="34" fill="none" stroke="#22d3ee" stroke-opacity="0.55" stroke-width="1.5" />
+      <circle cx="92" cy="0" r="4.5" fill="#22d3ee">
+        <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="11s" repeatCount="indefinite" />
+    </g>
+
+    <!-- Orbital 2 -->
+    <g transform="rotate(60)">
+      <g>
+        <ellipse cx="0" cy="0" rx="92" ry="34" fill="none" stroke="#10b981" stroke-opacity="0.5" stroke-width="1.5" />
+        <circle cx="-92" cy="0" r="4.5" fill="#34d399" />
+        <animateTransform attributeName="transform" type="rotate" from="360" to="0" dur="14s" repeatCount="indefinite" />
+      </g>
+    </g>
+
+    <!-- Orbital 3 -->
+    <g transform="rotate(120)">
+      <g>
+        <ellipse cx="0" cy="0" rx="92" ry="34" fill="none" stroke="#a78bfa" stroke-opacity="0.5" stroke-width="1.5" />
+        <circle cx="0" cy="34" r="4" fill="#c4b5fd" />
+        <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="17s" repeatCount="indefinite" />
+      </g>
+    </g>
+
+    <!-- Central Hexagonal Aegis Core -->
+    <polygon points="0,-42 36,-21 36,21 0,42 -36,21 -36,-21" fill="#091526" stroke="url(#shieldGrad)" stroke-width="2.5" />
+    <text x="0" y="11" text-anchor="middle" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="32" font-weight="800" fill="url(#titleGrad)">Q</text>
+  </g>
+
+  <!-- Right Hero Copy & Live Status Pills -->
+  <g transform="translate(365, 58)">
+    <!-- Live Eyebrow Pill -->
+    <rect x="0" y="0" width="435" height="28" rx="14" fill="#0d2238" stroke="#22d3ee" stroke-opacity="0.4" stroke-width="1" />
+    <circle cx="16" cy="14" r="4.5" fill="#10b981">
+      <animate attributeName="opacity" values="1;0.25;1" dur="1.8s" repeatCount="indefinite" />
+    </circle>
+    <text x="30" y="18.5" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#67e8f9" letter-spacing="0.8">PRODUCTION RELEASE v0.7.0  ·  ZERO-MOCK ARCHITECTURE</text>
+
+    <!-- Main Brand Headline -->
+    <text x="0" y="94" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="58" font-weight="900" fill="url(#titleGrad)" letter-spacing="2">Q-AEGIS</text>
+
+    <!-- Tagline -->
+    <text x="2" y="130" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="600" fill="#e2e8f0">Quantum-Secured Autonomous Edge-AI &amp; Hybrid Quantum Optimization</text>
+    <text x="2" y="158" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14.5" fill="#94a3b8">NIST FIPS 203 / 204 / 205 Post-Quantum Security · HSM &amp; TPM 2.0 Sealing · Live Web Control Plane · Multi-Cloud QPU</text>
+
+    <!-- 4 Capability Chips -->
+    <g transform="translate(0, 186)" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600">
+      <rect x="0" y="0" width="186" height="32" rx="8" fill="#101e33" stroke="#14b8a6" stroke-opacity="0.45" />
+      <text x="93" y="20" text-anchor="middle" fill="#5eead4">ML-KEM-768 · ML-DSA-65</text>
+
+      <rect x="198" y="0" width="184" height="32" rx="8" fill="#101e33" stroke="#38bdf8" stroke-opacity="0.45" />
+      <text x="290" y="20" text-anchor="middle" fill="#7dd3fc">ONNX → OpenQASM 3.0</text>
+
+      <rect x="394" y="0" width="192" height="32" rx="8" fill="#101e33" stroke="#a78bfa" stroke-opacity="0.45" />
+      <text x="490" y="20" text-anchor="middle" fill="#c4b5fd">IBM · Braket · IonQ</text>
+
+      <rect x="598" y="0" width="188" height="32" rx="8" fill="#101e33" stroke="#10b981" stroke-opacity="0.45" />
+      <text x="692" y="20" text-anchor="middle" fill="#6ee7b7">Live SSE Web Mission UI</text>
+    </g>
+
+    <!-- Subtle Attribution Line -->
+    <text x="2" y="252" font-family="'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#64748b" letter-spacing="0.6">ENGINEERED BY CORAX COLAB (CORAXCOLAB.COM) &amp; PELLE (@PELLENYBE)  ·  APACHE-2.0 OPEN SOURCE</text>
+  </g>
+</svg>
